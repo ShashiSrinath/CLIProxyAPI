@@ -1,0 +1,63 @@
+# Dokploy deployment for the fork's GHCR image (built by .github/workflows/ghcr-publish.yml).
+#
+# Required env (set in Dokploy's Environment tab):
+#   CLIPROXY_API_KEY     client key that callers (e.g. openai-like-super-proxy) send as Bearer
+#   MANAGEMENT_PASSWORD  management API / control panel password; also enables remote management
+#
+# Everything mutable lives on the `cliproxy-data` volume:
+#   /data/config.yaml  seeded on first boot only; afterwards edit it via the management panel
+#                      (/management.html) — env changes to CLIPROXY_API_KEY do not rewrite it
+#   /data/auths        OAuth credentials (Codex, Claude Code, ...) — losing this logs you out
+#
+# Expose it through a Dokploy domain on container port 8317 rather than a host port.
+
+services:
+  cliproxyapi:
+    image: ghcr.io/shashisrinath/cliproxyapi:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      CLIPROXY_API_KEY: ${CLIPROXY_API_KEY:?CLIPROXY_API_KEY is required (client API key)}
+      MANAGEMENT_PASSWORD: ${MANAGEMENT_PASSWORD:?MANAGEMENT_PASSWORD is required}
+      TZ: ${TZ:-UTC}
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+    command:
+      - |
+        if [ ! -f /data/config.yaml ]; then
+          echo "seeding /data/config.yaml"
+          mkdir -p /data/auths
+          cat > /data/config.yaml <<EOF
+        config-version: 8
+        server:
+          host: ""
+          port: 8317
+          # Trust Traefik's forwarded client IP; without this every caller shares
+          # the proxy's IP and 5 bad management passwords lock everyone out.
+          trusted-proxies:
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+        management:
+          allow-remote: true
+          secret-key: ""
+        access:
+          api-keys:
+            - "$$CLIPROXY_API_KEY"
+        oauth:
+          auth-dir: "/data/auths"
+        EOF
+        fi
+        exec ./CLIProxyAPI --config /data/config.yaml
+    expose:
+      - "8317"
+    volumes:
+      - cliproxy-data:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8317"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  cliproxy-data:
