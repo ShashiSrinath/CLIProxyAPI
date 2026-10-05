@@ -1096,24 +1096,47 @@ func newOpenAICompatStatusError(status int, headers http.Header, body []byte) st
 	}
 }
 
-// upstreamStatusError classifies a non-2xx upstream response. For OpenCode Go, a 429 is
-// checked against the account usage windows: an exhausted window blocks the whole
-// credential until that window resets instead of relying on exponential backoff.
+// upstreamStatusError classifies a non-2xx upstream response. For OpenCode Go and
+// Command Code, a 429 is checked against the account usage windows: an exhausted
+// window blocks the whole credential until that window resets instead of relying on
+// exponential backoff.
 func (e *OpenAICompatExecutor) upstreamStatusError(ctx context.Context, auth *cliproxyauth.Auth, baseURL, apiKey string, status int, headers http.Header, body []byte) statusErr {
 	errStatus := newOpenAICompatStatusError(status, headers, body)
-	if status != http.StatusTooManyRequests || apiKey == "" || !util.IsOpenCodeGoBaseURL(baseURL) {
+	if status != http.StatusTooManyRequests || apiKey == "" {
 		return errStatus
 	}
-	windows, errUsage := helps.FetchOpenCodeGoUsage(ctx, helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0), baseURL, apiKey)
-	if errUsage != nil {
-		helps.LogWithRequestID(ctx).Debugf("opencode go usage lookup failed: %v", errUsage)
+	cooldown, ok := e.quotaAwareCooldown(ctx, auth, baseURL, apiKey)
+	if !ok {
 		return errStatus
 	}
-	if cooldown, ok := helps.OpenCodeGoQuotaCooldown(windows, time.Now()); ok {
-		errStatus.retryAfter = &cooldown
-		errStatus.credentialScoped = true
-	}
+	errStatus.retryAfter = &cooldown
+	errStatus.credentialScoped = true
 	return errStatus
+}
+
+// quotaAwareCooldown returns how long a credential stays blocked after a 429, derived
+// from the provider's account-wide rolling spend windows. ok is false when the base URL
+// has no usage-window support or no window is exhausted with a known reset.
+func (e *OpenAICompatExecutor) quotaAwareCooldown(ctx context.Context, auth *cliproxyauth.Auth, baseURL, apiKey string) (time.Duration, bool) {
+	now := time.Now()
+	switch {
+	case util.IsOpenCodeGoBaseURL(baseURL):
+		windows, errUsage := helps.FetchOpenCodeGoUsage(ctx, helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0), baseURL, apiKey)
+		if errUsage != nil {
+			helps.LogWithRequestID(ctx).Debugf("opencode go usage lookup failed: %v", errUsage)
+			return 0, false
+		}
+		return helps.OpenCodeGoQuotaCooldown(windows, now)
+	case util.IsCommandCodeBaseURL(baseURL):
+		windows, errUsage := helps.FetchCommandCodeUsage(ctx, helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0), baseURL, apiKey)
+		if errUsage != nil {
+			helps.LogWithRequestID(ctx).Debugf("command code usage lookup failed: %v", errUsage)
+			return 0, false
+		}
+		return helps.CommandCodeQuotaCooldown(windows, now)
+	default:
+		return 0, false
+	}
 }
 
 // openAICompatRetryAfter preserves the provider's standard Retry-After signal.

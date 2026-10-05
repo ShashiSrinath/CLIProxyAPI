@@ -858,6 +858,17 @@ upstream:
 #           alias: "opencode-go/glm-5.2"
 #         - name: "deepseek-v4-pro"
 #           alias: "opencode-go/deepseek-v4-pro"
+#     # Command Code (https://commandcode.ai/docs/provider): OpenAI/Anthropic compatible.
+#     # A base-url on api.commandcode.ai enables built-in handling: a usage quota probe
+#     # for the 5-hour and weekly rolling windows and a credential cooldown until an
+#     # exhausted window resets on 429. Chat and embeddings have no extra headers.
+#     - name: "commandcode"
+#       base-url: "https://api.commandcode.ai/provider/v1"
+#       keys:
+#         - api-key: "user_..."
+#       models:
+#         - name: "deepseek/deepseek-v4.1-flash"
+#           alias: "commandcode/deepseek-v4.1-flash"
 
 # END API KEY EXAMPLES
 

@@ -331,6 +331,9 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 			if util.IsOpenCodeGoBaseURL(base) {
 				metadata["quota_probe"] = util.OpenCodeGoQuotaProbe(base)
 			}
+			if util.IsCommandCodeBaseURL(base) {
+				metadata["quota_probe"] = util.CommandCodeQuotaProbe(base)
+			}
 			if compat.Priority != 0 {
 				attrs["priority"] = strconv.Itoa(compat.Priority)
 			}
@@ -379,6 +382,9 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 			addRequestScopedErrorsToMetadata(compat.RequestScopedErrors, metadata)
 			if util.IsOpenCodeGoBaseURL(base) {
 				metadata["quota_probe"] = util.OpenCodeGoQuotaProbe(base)
+			}
+			if util.IsCommandCodeBaseURL(base) {
+				metadata["quota_probe"] = util.CommandCodeQuotaProbe(base)
 			}
 			if compat.Priority != 0 {
 				attrs["priority"] = strconv.Itoa(compat.Priority)

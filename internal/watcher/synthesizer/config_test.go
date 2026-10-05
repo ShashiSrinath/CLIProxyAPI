@@ -1322,3 +1322,67 @@ func TestConfigSynthesizer_RequestScopedErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigSynthesizer_OpenAICompat_QuotaProbeByBaseURL(t *testing.T) {
+	synth := NewConfigSynthesizer()
+	ctx := &SynthesisContext{
+		Config: &config.Config{
+			OpenAICompatibility: []config.OpenAICompatibility{
+				{
+					Name:    "opencode-go",
+					BaseURL: "https://opencode.ai/zen/go/v1",
+					APIKeyEntries: []config.OpenAICompatibilityAPIKey{
+						{APIKey: "oc-key"},
+					},
+				},
+				{
+					Name:    "commandcode",
+					BaseURL: "https://api.commandcode.ai/provider/v1",
+					APIKeyEntries: []config.OpenAICompatibilityAPIKey{
+						{APIKey: "user_key"},
+					},
+				},
+				{
+					Name:    "openrouter",
+					BaseURL: "https://openrouter.ai/api/v1",
+					APIKeyEntries: []config.OpenAICompatibilityAPIKey{
+						{APIKey: "or-key"},
+					},
+				},
+			},
+		},
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	auths, errSynthesize := synth.Synthesize(ctx)
+	if errSynthesize != nil {
+		t.Fatalf("Synthesize() error = %v", errSynthesize)
+	}
+	if len(auths) != 3 {
+		t.Fatalf("auths = %d, want 3", len(auths))
+	}
+
+	probeURL := func(auth *coreauth.Auth) string {
+		if auth.Metadata == nil {
+			return ""
+		}
+		probe, _ := auth.Metadata["quota_probe"].(map[string]any)
+		url, _ := probe["url"].(string)
+		return url
+	}
+
+	byBase := map[string]*coreauth.Auth{}
+	for _, auth := range auths {
+		byBase[auth.Attributes["base_url"]] = auth
+	}
+	if got := probeURL(byBase["https://opencode.ai/zen/go/v1"]); got != "https://opencode.ai/zen/go/v1/usage" {
+		t.Fatalf("opencode-go probe url = %q", got)
+	}
+	if got := probeURL(byBase["https://api.commandcode.ai/provider/v1"]); got != "https://api.commandcode.ai/alpha/billing/credits" {
+		t.Fatalf("commandcode probe url = %q", got)
+	}
+	if got := probeURL(byBase["https://openrouter.ai/api/v1"]); got != "" {
+		t.Fatalf("unrelated provider must not get a quota probe, got %q", got)
+	}
+}
