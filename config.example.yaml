@@ -88,6 +88,13 @@ access:
     - "your-api-key-1"
     - "your-api-key-2"
     - "your-api-key-3"
+  # Optional per-key provider allow-list. Keys without an entry may use every provider.
+  # Values are provider ids such as gemini, gemini-cli, vertex, aistudio, antigravity,
+  # codex, claude, xai or an openai-compatibility name. "openai-compatibility" allows
+  # every openai-compatibility provider.
+  # api-key-providers:
+  #   "your-api-key-2": ["codex", "claude"]
+  #   "your-api-key-3": ["openrouter"]
 
 # Optional credential concurrency and observation contracts.
 

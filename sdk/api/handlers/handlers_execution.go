@@ -59,6 +59,9 @@ func (h *BaseAPIHandler) executeWithAuthManagerFormats(ctx context.Context, entr
 		return nil, nil, errMsg
 	}
 	providers = adjustExecutionProvidersForEntryProtocol(entryProtocol, providers)
+	if providers, errMsg = h.restrictProvidersForRequest(ctx, providers, originalRequestedModel); errMsg != nil {
+		return nil, nil, errMsg
+	}
 	reqMeta := requestExecutionMetadata(ctx)
 	if execOptions.Path != "" {
 		reqMeta[coreexecutor.RequestPathMetadataKey] = execOptions.Path
@@ -134,6 +137,9 @@ func (h *BaseAPIHandler) executeCountWithAuthManager(ctx context.Context, handle
 		return nil, nil, errMsg
 	}
 	providers = adjustExecutionProvidersForEntryProtocol(handlerType, providers)
+	if providers, errMsg = h.restrictProvidersForRequest(ctx, providers, originalRequestedModel); errMsg != nil {
+		return nil, nil, errMsg
+	}
 	reqMeta := requestExecutionMetadata(ctx)
 	reqMeta[coreexecutor.RequestedModelMetadataKey] = originalRequestedModel
 	addAuthSelectionModelMetadata(reqMeta, execOptions.AuthSelectionModel)
@@ -188,6 +194,9 @@ func (h *BaseAPIHandler) executeCountWithAuthManager(ctx context.Context, handle
 }
 
 func (h *BaseAPIHandler) executeWithPluginExecutor(ctx context.Context, entryProtocol, responseProtocol, modelName, originalRequestedModel string, rawJSON []byte, alt, executorPluginID string, execOptions modelExecutionOptions) ([]byte, http.Header, *interfaces.ErrorMessage) {
+	if errMsg := h.checkPluginExecutorAccess(ctx, executorPluginID, originalRequestedModel); errMsg != nil {
+		return nil, nil, errMsg
+	}
 	if h.AuthManager != nil && h.AuthManager.HomeEnabled() {
 		return nil, nil, &interfaces.ErrorMessage{StatusCode: http.StatusServiceUnavailable, Error: fmt.Errorf("plugin executor routing is unavailable while Home is enabled")}
 	}
@@ -238,6 +247,9 @@ func (h *BaseAPIHandler) executeWithPluginExecutor(ctx context.Context, entryPro
 }
 
 func (h *BaseAPIHandler) countWithPluginExecutor(ctx context.Context, handlerType, modelName, originalRequestedModel string, rawJSON []byte, alt, executorPluginID string, execOptions modelExecutionOptions) ([]byte, http.Header, *interfaces.ErrorMessage) {
+	if errMsg := h.checkPluginExecutorAccess(ctx, executorPluginID, originalRequestedModel); errMsg != nil {
+		return nil, nil, errMsg
+	}
 	if h.AuthManager != nil && h.AuthManager.HomeEnabled() {
 		return nil, nil, &interfaces.ErrorMessage{StatusCode: http.StatusServiceUnavailable, Error: fmt.Errorf("plugin executor routing is unavailable while Home is enabled")}
 	}

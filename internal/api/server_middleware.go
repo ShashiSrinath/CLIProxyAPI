@@ -11,6 +11,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/safemode"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -228,6 +229,26 @@ func realtimeAuthMiddleware(manager *sdkaccess.Manager, handler *codexlive.Handl
 		c.Set("accessProvider", provider)
 		c.Set(codexlive.ClientSecretSessionContextKey, authorization.Session)
 		c.Set(codexlive.ClientSecretPrincipalContextKey, authorization.Principal)
+		c.Next()
+	}
+}
+
+// providerAccessMiddleware rejects client API keys whose provider allow-list excludes the
+// provider served by a provider-specific route. It must run after authentication.
+func (s *Server) providerAccessMiddleware(provider string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var sdkCfg *config.SDKConfig
+		if cfg := s.getConfig(); cfg != nil {
+			sdkCfg = &cfg.SDKConfig
+		}
+		if !handlers.ProviderAllowListForRequest(sdkCfg, c).Allows(provider) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{
+				"message": "API key is not allowed to use provider " + provider,
+				"type":    "permission_error",
+				"code":    "provider_not_allowed",
+			}})
+			return
+		}
 		c.Next()
 	}
 }
