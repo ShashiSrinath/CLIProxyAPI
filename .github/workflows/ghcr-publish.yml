@@ -2,6 +2,12 @@ name: GHCR publish
 
 # Fork-only image pipeline for Dokploy. Kept as a separate file (rather than
 # editing upstream's docker-image.yml) so syncing from upstream never conflicts.
+#
+# Every push to main is released as <upstream-tag>-fork.<n> (e.g. v8.0.11-fork.3),
+# where <upstream-tag> is the newest upstream release contained in main. The
+# image is pushed with that version, latest and sha tags, then a matching git
+# tag and GitHub release are created. Tags created with GITHUB_TOKEN do not
+# trigger other workflows, so upstream's tag-based release jobs stay idle.
 
 on:
   push:
@@ -10,12 +16,13 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
   group: ghcr-publish
-  cancel-in-progress: true
+  # Queue instead of cancelling so a run never stops between image push and tagging.
+  cancel-in-progress: false
 
 jobs:
   build-and-push:
@@ -23,6 +30,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -32,6 +42,30 @@ jobs:
 
       - name: Refresh models catalog
         run: bash .github/scripts/refresh-model-catalogs.sh
+
+      - name: Compute release version
+        id: version
+        run: |
+          set -euo pipefail
+          # Upstream tags are namespaced so they never mix with the fork's own tags.
+          git fetch --quiet --no-tags https://github.com/router-for-me/CLIProxyAPI.git \
+            '+refs/tags/v*:refs/tags/upstream/v*' || true
+          base="$(git describe --tags --abbrev=0 --match 'upstream/v*' HEAD 2>/dev/null || echo upstream/v0.0.0)"
+          base="${base#upstream/}"
+
+          # Re-runs on an already released commit reuse its version.
+          existing="$(git tag --points-at HEAD --list 'v*-fork.*' | sort -V | tail -n 1 || true)"
+          if [[ -n "$existing" ]]; then
+            version="$existing"
+          else
+            last_n="$(git tag --list "${base}-fork.*" | sed "s/^${base}-fork\.//" | grep -E '^[0-9]+$' | sort -n | tail -n 1 || true)"
+            version="${base}-fork.$(( ${last_n:-0} + 1 ))"
+          fi
+          previous="$(git tag --list 'v*-fork.*' --sort=-v:refname | grep -vx "$version" | head -n 1 || true)"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "Release version: $version (previous: ${previous:-none})"
 
       - name: Compute image name and build metadata
         id: meta
@@ -58,11 +92,42 @@ jobs:
           platforms: linux/amd64
           push: true
           build-args: |
-            VERSION=sha-${{ steps.meta.outputs.sha }}
+            VERSION=${{ steps.version.outputs.version }}
             COMMIT=${{ steps.meta.outputs.sha }}
             BUILD_DATE=${{ steps.meta.outputs.date }}
           tags: |
             ${{ steps.meta.outputs.name }}:latest
+            ${{ steps.meta.outputs.name }}:${{ steps.version.outputs.version }}
             ${{ steps.meta.outputs.name }}:sha-${{ steps.meta.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Tag and create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PREVIOUS: ${{ steps.version.outputs.previous }}
+          IMAGE: ${{ steps.meta.outputs.name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists"
+            exit 0
+          fi
+
+          notes_file="$(mktemp)"
+          trap 'rm -f "$notes_file"' EXIT
+          {
+            printf 'Image: `%s:%s`\n\n## Changelog\n\n' "$IMAGE" "$VERSION"
+            if [[ -n "$PREVIOUS" ]]; then
+              git log --reverse --no-merges --pretty=format:'- %s (%h)' "${PREVIOUS}..HEAD"
+            else
+              git log -1 --pretty=format:'- %s (%h)' HEAD
+            fi
+            printf '\n'
+          } > "$notes_file"
+
+          gh release create "$VERSION" \
+            --target "$GITHUB_SHA" \
+            --title "$VERSION" \
+            --notes-file "$notes_file"
