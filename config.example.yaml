@@ -835,6 +835,22 @@ upstream:
 #           alias: "claude-opus-4.66"
 #         - name: "kimi-k2.5"
 #           alias: "claude-opus-4.66"
+#     # OpenCode Go (https://opencode.ai/docs/go/): chat/completions models only.
+#     # A base-url on opencode.ai/zen/go enables built-in handling: a cli-proxy-api User-Agent,
+#     # x-opencode-session set to the canonical session identity ($CPA-SESSION-ID), a credential
+#     # cooldown until the exhausted usage window resets on 429, and a usage quota probe.
+#     # Configured headers still override the defaults.
+#     - name: "opencode-go"
+#       base-url: "https://opencode.ai/zen/go/v1"
+#       keys:
+#         - api-key: "sk-..."
+#       models:
+#         - name: "kimi-k2.6"
+#           alias: "opencode-go/kimi-k2.6"
+#         - name: "glm-5.2"
+#           alias: "opencode-go/glm-5.2"
+#         - name: "deepseek-v4-pro"
+#           alias: "opencode-go/deepseek-v4-pro"
 
 # END API KEY EXAMPLES
 

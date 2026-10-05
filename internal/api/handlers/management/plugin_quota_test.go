@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginhost"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
@@ -1202,5 +1203,29 @@ func TestFetchCredentialQuota_MissingTokenDoesNotHitUpstream(t *testing.T) {
 	// Upstream must NEVER be contacted
 	if upstreamHit {
 		t.Fatal("upstream server must NOT be contacted when template requires token but token is missing")
+	}
+}
+
+func TestMapProbeResponse_OpenCodeGoUsedPercent(t *testing.T) {
+	// Captured from https://opencode.ai/zen/go/v1/usage.
+	body := []byte(`{"usage":{"rolling":{"status":"ok","percent":8,"resetsAt":"2026-10-05T02:09:54.000Z"},"weekly":{"status":"ok","percent":2,"resetsAt":"2026-10-12T00:00:00.000Z"},"monthly":{"status":"ok","percent":120,"resetsAt":"2026-11-04T09:01:38.000Z"}}}`)
+	probe := util.OpenCodeGoQuotaProbe("https://opencode.ai/zen/go/v1")
+	mapping, _ := probe["mapping"].(map[string]any)
+	resp, err := mapProbeResponse(body, mapping)
+	if err != nil {
+		t.Fatalf("mapProbeResponse() error = %v", err)
+	}
+	if len(resp.Groups) != 1 || len(resp.Groups[0].Buckets) != 3 {
+		t.Fatalf("groups = %+v", resp.Groups)
+	}
+	rolling := resp.Groups[0].Buckets[0]
+	if rolling.Window != "5h" || rolling.RemainingFraction != 0.92 || rolling.ResetTime != "2026-10-05T02:09:54.000Z" || rolling.Description != "ok" {
+		t.Fatalf("rolling bucket = %+v", rolling)
+	}
+	if monthly := resp.Groups[0].Buckets[2]; monthly.RemainingFraction != 0 {
+		t.Fatalf("monthly remaining fraction = %v, want clamped to 0", monthly.RemainingFraction)
+	}
+	if probe["url"] != "https://opencode.ai/zen/go/v1/usage" {
+		t.Fatalf("probe url = %v", probe["url"])
 	}
 }

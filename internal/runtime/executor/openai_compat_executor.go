@@ -155,6 +155,9 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	httpReq.Header.Set("User-Agent", "cli-proxy-openai-compat")
+	if util.IsOpenCodeGoBaseURL(baseURL) {
+		util.ApplyCustomHeadersFromAttrs(httpReq, helps.OpenCodeGoDefaultHeaderAttrs(), opts.Headers)
+	}
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
@@ -195,7 +198,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		b, _ := io.ReadAll(httpResp.Body)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
-		err = newOpenAICompatStatusError(httpResp.StatusCode, httpResp.Header, b)
+		err = e.upstreamStatusError(ctx, auth, baseURL, apiKey, httpResp.StatusCode, httpResp.Header, b)
 		return resp, err
 	}
 	body, err := io.ReadAll(httpResp.Body)
@@ -373,6 +376,9 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	httpReq.Header.Set("User-Agent", "cli-proxy-openai-compat")
+	if util.IsOpenCodeGoBaseURL(baseURL) {
+		util.ApplyCustomHeadersFromAttrs(httpReq, helps.OpenCodeGoDefaultHeaderAttrs(), opts.Headers)
+	}
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
@@ -413,7 +419,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 		if errClose := httpResp.Body.Close(); errClose != nil {
 			log.Errorf("openai compat executor: close response body error: %v", errClose)
 		}
-		err = newOpenAICompatStatusError(httpResp.StatusCode, httpResp.Header, b)
+		err = e.upstreamStatusError(ctx, auth, baseURL, apiKey, httpResp.StatusCode, httpResp.Header, b)
 		return nil, err
 	}
 	out := make(chan cliproxyexecutor.StreamChunk)
@@ -1088,6 +1094,26 @@ func newOpenAICompatStatusError(status int, headers http.Header, body []byte) st
 		msg:        string(body),
 		retryAfter: openAICompatRetryAfter(status, headers, body, time.Now()),
 	}
+}
+
+// upstreamStatusError classifies a non-2xx upstream response. For OpenCode Go, a 429 is
+// checked against the account usage windows: an exhausted window blocks the whole
+// credential until that window resets instead of relying on exponential backoff.
+func (e *OpenAICompatExecutor) upstreamStatusError(ctx context.Context, auth *cliproxyauth.Auth, baseURL, apiKey string, status int, headers http.Header, body []byte) statusErr {
+	errStatus := newOpenAICompatStatusError(status, headers, body)
+	if status != http.StatusTooManyRequests || apiKey == "" || !util.IsOpenCodeGoBaseURL(baseURL) {
+		return errStatus
+	}
+	windows, errUsage := helps.FetchOpenCodeGoUsage(ctx, helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0), baseURL, apiKey)
+	if errUsage != nil {
+		helps.LogWithRequestID(ctx).Debugf("opencode go usage lookup failed: %v", errUsage)
+		return errStatus
+	}
+	if cooldown, ok := helps.OpenCodeGoQuotaCooldown(windows, time.Now()); ok {
+		errStatus.retryAfter = &cooldown
+		errStatus.credentialScoped = true
+	}
+	return errStatus
 }
 
 // openAICompatRetryAfter preserves the provider's standard Retry-After signal.

@@ -768,6 +768,15 @@ func mapProbeResponse(respBytes []byte, mapping map[string]any) (pluginapi.Quota
 						}
 					}
 					if !hasFraction {
+						// used_percent maps a 0-100 consumption value to the remaining fraction.
+						if used, okUsed := bm["used_percent"].(string); okUsed && used != "" {
+							if val, okNum := parseNumericFraction(gjson.GetBytes(respBytes, used)); okNum {
+								frac = math.Max(0, math.Min(1, 1-val/100))
+								hasFraction = true
+							}
+						}
+					}
+					if !hasFraction {
 						continue
 					}
 					bucket := pluginapi.QuotaBucket{

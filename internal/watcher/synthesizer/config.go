@@ -328,6 +328,9 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 			}
 			addRequestRetryToMetadata(compat.RequestRetry, metadata)
 			addRequestScopedErrorsToMetadata(compat.RequestScopedErrors, metadata)
+			if util.IsOpenCodeGoBaseURL(base) {
+				metadata["quota_probe"] = util.OpenCodeGoQuotaProbe(base)
+			}
 			if compat.Priority != 0 {
 				attrs["priority"] = strconv.Itoa(compat.Priority)
 			}
@@ -374,6 +377,9 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 			}
 			addRequestRetryToMetadata(compat.RequestRetry, metadata)
 			addRequestScopedErrorsToMetadata(compat.RequestScopedErrors, metadata)
+			if util.IsOpenCodeGoBaseURL(base) {
+				metadata["quota_probe"] = util.OpenCodeGoQuotaProbe(base)
+			}
 			if compat.Priority != 0 {
 				attrs["priority"] = strconv.Itoa(compat.Priority)
 			}
