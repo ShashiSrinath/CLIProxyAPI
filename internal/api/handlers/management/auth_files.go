@@ -17,6 +17,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/credentialweight"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
@@ -271,7 +272,7 @@ func isAuthFileListable(auth *coreauth.Auth) bool {
 	}
 	path := strings.TrimSpace(authAttribute(auth, "path"))
 	if path == "" {
-		return runtimeOnly
+		return runtimeOnly || isConfigQuotaAuth(auth)
 	}
 	if _, errStat := os.Stat(path); os.IsNotExist(errStat) && !runtimeOnly &&
 		(auth.Disabled || auth.Status == coreauth.StatusDisabled || strings.EqualFold(strings.TrimSpace(auth.StatusMessage), "removed via management api")) {
@@ -644,7 +645,8 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quotaSupported .
 		return nil
 	}
 	path := strings.TrimSpace(authAttribute(auth, "path"))
-	if path == "" && !runtimeOnly {
+	configQuota := path == "" && !runtimeOnly && isConfigQuotaAuth(auth)
+	if path == "" && !runtimeOnly && !configQuota {
 		return nil
 	}
 	name := strings.TrimSpace(auth.FileName)
@@ -724,6 +726,13 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quotaSupported .
 	}
 	if !nextRetryAfter.IsZero() {
 		entry["next_retry_after"] = nextRetryAfter
+	}
+	if configQuota {
+		// Config credentials are listed only for quota display; never echo the raw key.
+		entry["source"] = "config"
+		if account, ok := entry["account"].(string); ok {
+			entry["account"] = util.HideAPIKey(account)
+		}
 	}
 	if path != "" {
 		entry["path"] = path
@@ -969,6 +978,15 @@ func authAttribute(auth *coreauth.Auth, key string) string {
 		return ""
 	}
 	return auth.Attributes[key]
+}
+
+// isConfigQuotaAuth reports config-defined API keys that carry a quota probe (e.g. OpenCode Go).
+// They have no backing file but are listed so the management panel can show their quota.
+func isConfigQuotaAuth(auth *coreauth.Auth) bool {
+	if !coreauth.IsConfigAPIKeyAuth(auth) || auth.Disabled || auth.Metadata == nil {
+		return false
+	}
+	return auth.Metadata["quota_probe"] != nil
 }
 
 func isRuntimeOnlyAuth(auth *coreauth.Auth) bool {
