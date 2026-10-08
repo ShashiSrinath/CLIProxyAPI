@@ -104,6 +104,11 @@ func (h *BaseAPIHandler) executeWithAuthManagerFormats(ctx context.Context, entr
 	}
 	ctx = enrichContextWithSessionHierarchy(ctx, opts.Headers, req.Payload, opts.Metadata)
 	resp, err := h.AuthManager.Execute(ctx, providers, req, opts)
+	if fallback, okFallback := h.modelFallbackFor(ctx, entryProtocol, normalizedModel, err); okFallback {
+		providers, normalizedModel = fallback.providers, fallback.model
+		req, opts = fallback.apply(req, opts)
+		resp, err = h.AuthManager.Execute(ctx, providers, req, opts)
+	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
 		errMsg := executionErrorMessage(err)
@@ -177,6 +182,11 @@ func (h *BaseAPIHandler) executeCountWithAuthManager(ctx context.Context, handle
 	}
 	ctx = enrichContextWithSessionHierarchy(ctx, opts.Headers, req.Payload, opts.Metadata)
 	resp, err := h.AuthManager.ExecuteCount(ctx, providers, req, opts)
+	if fallback, okFallback := h.modelFallbackFor(ctx, handlerType, normalizedModel, err); okFallback {
+		providers, normalizedModel = fallback.providers, fallback.model
+		req, opts = fallback.apply(req, opts)
+		resp, err = h.AuthManager.ExecuteCount(ctx, providers, req, opts)
+	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
 		errMsg := executionErrorMessage(err)

@@ -374,7 +374,21 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 		return nil, nil, errChan
 	}
 	ctx = enrichContextWithSessionHierarchy(ctx, opts.Headers, req.Payload, opts.Metadata)
+	// switchToModelFallback retargets the remaining attempts at the fallback model once the
+	// main model is out of limits. The fallback model never matches its own rule, so it runs once.
+	switchToModelFallback := func(err error) bool {
+		fallback, okFallback := h.modelFallbackFor(ctx, entryProtocol, normalizedModel, err)
+		if !okFallback {
+			return false
+		}
+		providers, normalizedModel = fallback.providers, fallback.model
+		req, opts = fallback.apply(req, opts)
+		return true
+	}
 	streamResult, err := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+	if err != nil && switchToModelFallback(err) {
+		streamResult, err = h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
 		errMsg := executionErrorMessage(err)
@@ -572,11 +586,19 @@ func (h *BaseAPIHandler) executeStreamWithAuthManagerFormats(ctx context.Context
 			break
 		}
 		if bootstrapRetries >= maxBootstrapRetries || !bootstrapEligible(bootstrapStreamErr) {
-			bootstrapErr = executionErrorMessage(bootstrapStreamErr)
-			break
+			if !switchToModelFallback(bootstrapStreamErr) {
+				bootstrapErr = executionErrorMessage(bootstrapStreamErr)
+				break
+			}
+			bootstrapRetries = 0
+		} else {
+			bootstrapRetries++
 		}
-		bootstrapRetries++
 		retryResult, retryErr := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+		if retryErr != nil && switchToModelFallback(retryErr) {
+			bootstrapRetries = 0
+			retryResult, retryErr = h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+		}
 		if retryErr != nil {
 			originalBootstrapErr := executionErrorMessage(bootstrapStreamErr)
 			if isAuthSelectionUnavailable(retryErr) && originalBootstrapErr.StatusCode >= http.StatusInternalServerError {

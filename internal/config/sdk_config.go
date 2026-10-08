@@ -66,6 +66,10 @@ type SDKConfig struct {
 	// Keys without an entry (or with an empty list) may use every provider.
 	APIKeyProviders map[string][]string `yaml:"api-key-providers,omitempty" json:"api-key-providers,omitempty"`
 
+	// ModelFallback reroutes requests for a main model to a fallback model once the
+	// main model is out of limits (HTTP 429 after every credential was tried).
+	ModelFallback ModelFallbackConfig `yaml:"model-fallback,omitempty" json:"model-fallback,omitempty"`
+
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).
 	PassthroughHeaders bool `yaml:"passthrough-headers" json:"passthrough-headers"`
@@ -111,4 +115,30 @@ type StreamingConfig struct {
 	// to allow auth rotation / transient recovery.
 	// <= 0 disables bootstrap retries. Default is 0.
 	BootstrapRetries int `yaml:"bootstrap-retries,omitempty" json:"bootstrap-retries,omitempty"`
+}
+
+// ModelFallbackConfig configures fallback mode.
+type ModelFallbackConfig struct {
+	// Enabled turns fallback mode on. Rules are ignored while it is false.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Rules maps main models to their fallback models.
+	Rules []ModelFallbackRule `yaml:"rules,omitempty" json:"rules,omitempty"`
+}
+
+// ModelFallbackRule reroutes one main model to a fallback model.
+type ModelFallbackRule struct {
+	// Model is the client-visible main model, matched case-insensitively without a thinking suffix.
+	Model string `yaml:"model" json:"model"`
+
+	// FallbackModel is the client-visible model used once Model is out of limits.
+	FallbackModel string `yaml:"fallback-model" json:"fallback-model"`
+
+	// FallbackProviders optionally restricts the fallback to these providers
+	// (for example openai-compatibility names). Empty means every provider serving FallbackModel.
+	FallbackProviders []string `yaml:"fallback-providers,omitempty" json:"fallback-providers,omitempty"`
+
+	// FallbackReasoningEffort optionally overrides the reasoning effort for the fallback
+	// request (for example "low", "medium", "high"). Empty keeps the client's effort.
+	FallbackReasoningEffort string `yaml:"fallback-reasoning-effort,omitempty" json:"fallback-reasoning-effort,omitempty"`
 }

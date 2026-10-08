@@ -159,6 +159,20 @@ routing:
   # When true, unprefixed model requests only use credentials without a prefix (except when prefix == model name).
   force-model-prefix: false
 
+  # Fallback mode: when a main model is out of limits (HTTP 429 after every eligible
+  # credential was tried, or all of its credentials are cooling down), the request is
+  # rerouted once to the fallback model. Any other error is returned unchanged.
+  # fallback-providers optionally restricts the fallback to those providers; give the
+  # fallback model the same alias in each openai-compatibility entry to pool them.
+  # fallback-reasoning-effort optionally overrides the client's reasoning effort.
+  # model-fallback:
+  #   enabled: true
+  #   rules:
+  #     - model: "gpt-6.1-sol"
+  #       fallback-model: "deepseek-v4.1-flash"
+  #       fallback-providers: ["opencode-go", "commandcode"]
+  #       fallback-reasoning-effort: "high"
+
   retry:
     # Number of additional credential retry rounds after the first round exhausts
     # its eligible credentials. Round 0 is the initial round; round r only admits
