@@ -66,6 +66,9 @@ type SDKConfig struct {
 	// Keys without an entry (or with an empty list) may use every provider.
 	APIKeyProviders map[string][]string `yaml:"api-key-providers,omitempty" json:"api-key-providers,omitempty"`
 
+	// APIKeyNames assigns human-readable labels to individual client API keys.
+	APIKeyNames map[string]string `yaml:"api-key-names,omitempty" json:"api-key-names,omitempty"`
+
 	// ModelFallback reroutes requests for a main model to a fallback model once the
 	// main model is out of limits (HTTP 429 after every credential was tried).
 	ModelFallback ModelFallbackConfig `yaml:"model-fallback,omitempty" json:"model-fallback,omitempty"`

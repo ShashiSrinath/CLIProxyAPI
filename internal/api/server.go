@@ -58,6 +58,9 @@ type Server struct {
 	cfgMu sync.RWMutex
 	cfg   *config.Config
 
+	// usage owns per-client-key usage tracking and model pricing.
+	usage *usageTracking
+
 	// oldConfigYaml stores a YAML snapshot of the previous configuration for change detection.
 	// This prevents issues when the config object is modified in place by Management API.
 	oldConfigYaml []byte
@@ -210,6 +213,8 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	applySignatureCacheConfig(nil, cfg)
 	// Initialize management handler
 	s.mgmt = managementHandlers.NewHandler(cfg, configFilePath, authManager)
+	s.usage = &usageTracking{}
+	s.mgmt.SetUsageDashboard(s.usage)
 	s.mgmt.SetPluginHost(optionState.pluginHost)
 	s.mgmt.SetConfigReloadHook(optionState.configReloadHook)
 	if optionState.localPassword != "" {
@@ -296,6 +301,7 @@ func (s *Server) Start() error {
 	}
 
 	cfg := s.getConfig()
+	s.usage.start(cfg)
 	useTLS := cfg != nil && cfg.TLS.Enable
 	if useTLS {
 		certPath := strings.TrimSpace(cfg.TLS.Cert)
@@ -442,6 +448,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	if s.codexLiveHandler != nil {
 		s.codexLiveHandler.Close()
 	}
+	s.usage.stop(ctx)
 	if errCloseServer != nil {
 		return fmt.Errorf("failed to shutdown HTTP server: %v", errCloseServer)
 	}

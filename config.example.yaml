@@ -95,6 +95,10 @@ access:
   # api-key-providers:
   #   "your-api-key-2": ["codex", "claude"]
   #   "your-api-key-3": ["openrouter"]
+  # Optional display names for client API keys, shown on the usage dashboard.
+  # api-key-names:
+  #   "your-api-key-1": "Laptop"
+  #   "your-api-key-2": "CI"
 
 # Optional credential concurrency and observation contracts.
 
@@ -1143,6 +1147,22 @@ observability:
     # The local Redis RESP usage output is disabled.
     # Default: 60. Max: 3600.
     redis-usage-queue-retention-seconds: 60
+
+    # Persistent usage per client API key and model, powering the management dashboard.
+    # Enabled by default and independent of usage-statistics-enabled.
+    # tracking:
+    #   disabled: false
+    #   retention-days: 90        # Default: 90
+    #   data-dir: ""              # Default: <auth-dir>/usage
+    #   pricing:
+    #     # Model prices are fetched from https://openrouter.ai/api/v1/models.
+    #     openrouter-disabled: false
+    #     refresh-hours: 24       # Default: 24
+    #     # Map a model name or glob pattern to an OpenRouter model id, or set manual
+    #     # prices in USD per one million tokens.
+    #     overrides:
+    #       "claude-opus-4-1*": { openrouter-id: "anthropic/claude-opus-4.1" }
+    #       "my-local-model": { input: 0, output: 0 }
 
   # Enable pprof HTTP debug server (host:port). Keep it bound to localhost for safety.
   pprof:

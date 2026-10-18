@@ -74,6 +74,7 @@ func buildV8Paths() []configPath {
 		{"tls", "server.tls"}, {"commercial-mode", "server.commercial-mode"}, {"discovery", "server.discovery"},
 		{"remote-management", "management"}, {"api-keys", "access.api-keys"},
 		{"api-key-providers", "access.api-key-providers"},
+		{"api-key-names", "access.api-key-names"},
 		{"credential-concurrency", "credentials.concurrency"}, {"credential-in-flight", "credentials.in-flight"},
 		{"force-model-prefix", "routing.force-model-prefix"}, {"model-fallback", "routing.model-fallback"},
 		{"request-retry", "routing.retry.request-retry"}, {"max-retry-credentials", "routing.retry.max-retry-credentials"},
@@ -107,6 +108,7 @@ func buildV8Paths() []configPath {
 		{"error-logs-max-files", "observability.logs.error-logs-max-files"},
 		{"usage-statistics-enabled", "observability.usage.usage-statistics-enabled"},
 		{"redis-usage-queue-retention-seconds", "observability.usage.redis-usage-queue-retention-seconds"}, {"pprof", "observability.pprof"},
+		{"usage-tracking", "observability.usage.tracking"},
 	}
 	var out []configPath
 	var walk func(reflect.Type, string, []int)

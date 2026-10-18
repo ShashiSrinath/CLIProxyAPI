@@ -69,6 +69,9 @@ type Config struct {
 	// Default: 60. Max: 3600.
 	RedisUsageQueueRetentionSeconds int `yaml:"redis-usage-queue-retention-seconds" json:"redis-usage-queue-retention-seconds"`
 
+	// UsageTracking configures the persistent per-client-key usage aggregator and model pricing.
+	UsageTracking UsageTrackingConfig `yaml:"usage-tracking" json:"usage-tracking"`
+
 	// DisableCooling disables auth/model cooldown scheduling when true unless a credential or provider overrides it.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 
