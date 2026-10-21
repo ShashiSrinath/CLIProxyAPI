@@ -1099,8 +1099,12 @@ func newOpenAICompatStatusError(status int, headers http.Header, body []byte) st
 // upstreamStatusError classifies a non-2xx upstream response. For OpenCode Go and
 // Command Code, a 429 is checked against the account usage windows: an exhausted
 // window blocks the whole credential until that window resets instead of relying on
-// exponential backoff.
+// exponential backoff. A Command Code insufficient-credits rejection is treated as
+// credential exhaustion as well.
 func (e *OpenAICompatExecutor) upstreamStatusError(ctx context.Context, auth *cliproxyauth.Auth, baseURL, apiKey string, status int, headers http.Header, body []byte) statusErr {
+	if util.IsCommandCodeBaseURL(baseURL) && helps.IsCommandCodeInsufficientCredits(status, body) {
+		return e.commandCodeInsufficientCreditsError(ctx, auth, baseURL, apiKey, body)
+	}
 	errStatus := newOpenAICompatStatusError(status, headers, body)
 	if status != http.StatusTooManyRequests || apiKey == "" {
 		return errStatus
@@ -1112,6 +1116,33 @@ func (e *OpenAICompatExecutor) upstreamStatusError(ctx context.Context, auth *cl
 	errStatus.retryAfter = &cooldown
 	errStatus.credentialScoped = true
 	return errStatus
+}
+
+// commandCodeInsufficientCreditsError converts Command Code's out-of-credits 400/402 into
+// a credential-scoped 429. Upstream labels it invalid_request_error, which the auth
+// manager would treat as a request fault: it would return the error at once without
+// trying other credentials and without cooling the broke one. HTTP 429 is the status the
+// manager and model-fallback use for exhausted quota, so the credential is skipped until
+// the cooldown ends, other credentials are tried, and model-fallback can take over once
+// none remain. The client still sees the upstream message as insufficient_quota.
+func (e *OpenAICompatExecutor) commandCodeInsufficientCreditsError(ctx context.Context, auth *cliproxyauth.Auth, baseURL, apiKey string, body []byte) statusErr {
+	var periodEnd time.Time
+	if apiKey != "" {
+		end, errLookup := helps.FetchCommandCodeSubscriptionPeriodEnd(ctx, helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0), baseURL, apiKey)
+		if errLookup != nil {
+			helps.LogWithRequestID(ctx).Debugf("command code subscription lookup failed: %v", errLookup)
+		} else {
+			periodEnd = end
+		}
+	}
+	cooldown := helps.CommandCodeCreditsCooldown(periodEnd, time.Now())
+	helps.LogWithRequestID(ctx).Warnf("command code credential has insufficient credits, cooling it down for %s", cooldown.Round(time.Second))
+	return statusErr{
+		code:             http.StatusTooManyRequests,
+		msg:              string(helps.CommandCodeInsufficientCreditsBody(body)),
+		retryAfter:       &cooldown,
+		credentialScoped: true,
+	}
 }
 
 // quotaAwareCooldown returns how long a credential stays blocked after a 429, derived

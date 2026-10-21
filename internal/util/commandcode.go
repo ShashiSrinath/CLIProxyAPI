@@ -11,6 +11,10 @@ const commandCodeHostPath = "api.commandcode.ai"
 // host root, not under the /provider/v1 base path used for generation.
 const commandCodeCreditsPath = "/alpha/billing/credits"
 
+// commandCodeSubscriptionsPath is the account subscription endpoint. Its
+// currentPeriodEnd marks when the monthly plan credits refill.
+const commandCodeSubscriptionsPath = "/alpha/billing/subscriptions"
+
 // CommandCodeUsageWindows lists the rolling spend windows reported by the Command
 // Code credits endpoint. Keys match the upstream "windowLimits" JSON fields.
 var CommandCodeUsageWindows = []struct{ Key, Label string }{
@@ -25,14 +29,24 @@ func IsCommandCodeBaseURL(baseURL string) bool {
 
 // CommandCodeCreditsURL returns the account credits endpoint for a Command Code base URL.
 func CommandCodeCreditsURL(baseURL string) string {
+	return commandCodeHostURL(baseURL, commandCodeCreditsPath)
+}
+
+// CommandCodeSubscriptionsURL returns the account subscription endpoint for a Command Code base URL.
+func CommandCodeSubscriptionsURL(baseURL string) string {
+	return commandCodeHostURL(baseURL, commandCodeSubscriptionsPath)
+}
+
+// commandCodeHostURL joins path onto the host root of a Command Code base URL.
+func commandCodeHostURL(baseURL, path string) string {
 	if parsed, errParse := url.Parse(strings.TrimSpace(baseURL)); errParse == nil && parsed.Host != "" {
 		scheme := parsed.Scheme
 		if scheme == "" {
 			scheme = "https"
 		}
-		return scheme + "://" + parsed.Host + commandCodeCreditsPath
+		return scheme + "://" + parsed.Host + path
 	}
-	return "https://" + commandCodeHostPath + commandCodeCreditsPath
+	return "https://" + commandCodeHostPath + path
 }
 
 // CommandCodeQuotaProbe returns the management quota probe for a Command Code credential.

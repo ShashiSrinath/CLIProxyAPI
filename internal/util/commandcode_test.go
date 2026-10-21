@@ -16,6 +16,12 @@ func TestCommandCodeBaseURLAndCreditsURL(t *testing.T) {
 	if got := CommandCodeCreditsURL(""); got != "https://api.commandcode.ai/alpha/billing/credits" {
 		t.Fatalf("fallback credits url = %q", got)
 	}
+	if got := CommandCodeSubscriptionsURL(base); got != "https://api.commandcode.ai/alpha/billing/subscriptions" {
+		t.Fatalf("subscriptions url = %q", got)
+	}
+	if got := CommandCodeSubscriptionsURL(""); got != "https://api.commandcode.ai/alpha/billing/subscriptions" {
+		t.Fatalf("fallback subscriptions url = %q", got)
+	}
 }
 
 func TestCommandCodeQuotaProbe(t *testing.T) {
