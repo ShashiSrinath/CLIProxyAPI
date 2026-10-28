@@ -897,6 +897,9 @@ upstream:
 #       base-url: "https://amr-link.open-design.ai/v1"
 #       keys:
 #         - api-key: "sk-amr-..."
+#           # Dashboard session cookie, managed by the OpenDesign connect action.
+#           opendesign-session: ""
+#           opendesign-workspace-id: ""
 #       models:
 #         - name: "deepseek-v4.1-flash"
 #           alias: "opendesign/deepseek-v4.1-flash"

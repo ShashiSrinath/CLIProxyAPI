@@ -38,6 +38,9 @@ const attemptMaxIdleTime = 2 * time.Hour
 
 // Handler aggregates config reference, persistence path and helpers.
 type Handler struct {
+	openDesignCancel        context.CancelFunc
+	openDesignRefresh       chan struct{}
+	openDesignInvalid       map[string]bool
 	cfg                     *config.Config
 	configFilePath          string
 	mu                      sync.Mutex
@@ -129,6 +132,12 @@ func (h *Handler) SetConfig(cfg *config.Config) {
 	}
 	h.mu.Lock()
 	h.cfg = cfg
+	if h.openDesignRefresh != nil {
+		select {
+		case h.openDesignRefresh <- struct{}{}:
+		default:
+		}
+	}
 	h.mu.Unlock()
 }
 

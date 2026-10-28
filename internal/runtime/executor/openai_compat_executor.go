@@ -1105,6 +1105,14 @@ func (e *OpenAICompatExecutor) upstreamStatusError(ctx context.Context, auth *cl
 	if util.IsCommandCodeBaseURL(baseURL) && helps.IsCommandCodeInsufficientCredits(status, body) {
 		return e.commandCodeInsufficientCreditsError(ctx, auth, baseURL, apiKey, body)
 	}
+	if util.IsOpenDesignBaseURL(baseURL) && auth != nil && auth.Attributes["opendesign_session"] != "" && (status == http.StatusPaymentRequired || status == http.StatusTooManyRequests) {
+		usage, err := helps.FetchOpenDesignUsage(ctx, helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0), auth.Attributes["opendesign_session"], auth.Attributes["opendesign_workspace_id"])
+		if err == nil {
+			if cooldown, blocked := helps.OpenDesignQuotaCooldown(usage, time.Now()); blocked {
+				return statusErr{code: http.StatusTooManyRequests, msg: string(body), retryAfter: &cooldown, credentialScoped: true}
+			}
+		}
+	}
 	errStatus := newOpenAICompatStatusError(status, headers, body)
 	if status != http.StatusTooManyRequests || apiKey == "" {
 		return errStatus

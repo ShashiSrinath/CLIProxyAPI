@@ -217,6 +217,7 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	s.mgmt.SetUsageDashboard(s.usage)
 	s.mgmt.SetPluginHost(optionState.pluginHost)
 	s.mgmt.SetConfigReloadHook(optionState.configReloadHook)
+	s.mgmt.StartOpenDesignKeepAlive()
 	if optionState.localPassword != "" {
 		s.mgmt.SetLocalPassword(optionState.localPassword)
 	}
@@ -413,6 +414,9 @@ func (s *Server) Start() error {
 //   - error: An error if the server fails to stop
 func (s *Server) Stop(ctx context.Context) error {
 	log.Debug("Stopping API server...")
+	if s.mgmt != nil {
+		s.mgmt.StopOpenDesignKeepAlive()
+	}
 
 	if s.keepAliveEnabled {
 		select {

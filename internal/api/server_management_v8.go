@@ -44,6 +44,11 @@ func (s *Server) registerManagementV8Routes() {
 	v8.GET("/observability/usage/pricing", s.mgmt.GetUsagePricing)
 	v8.POST("/observability/usage/pricing/refresh", s.mgmt.RefreshUsagePricing)
 
+	v8.POST("/opendesign/connect", s.mgmt.OpenDesignConnect)
+	v8.DELETE("/opendesign/connect", s.mgmt.OpenDesignDisconnect)
+	v8.GET("/opendesign/status", s.mgmt.OpenDesignStatus)
+	v8.GET("/opendesign/usage", s.mgmt.OpenDesignUsage)
+
 	v8.GET("/credentials", s.mgmt.ListAuthFiles)
 	v8.POST("/credentials", s.mgmt.UploadAuthFile)
 	v8.DELETE("/credentials", s.mgmt.DeleteAuthFile)

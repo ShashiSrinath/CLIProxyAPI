@@ -323,6 +323,10 @@ func (s *ConfigSynthesizer) synthesizeOpenAICompat(ctx *SynthesisContext) []*cor
 				"config_index": strconv.Itoa(i),
 			}
 			metadata := map[string]any{}
+			if util.IsOpenDesignBaseURL(base) {
+				attrs["opendesign_session"] = entry.OpenDesignSession
+				attrs["opendesign_workspace_id"] = entry.OpenDesignWorkspaceID
+			}
 			if disableCooling != nil {
 				metadata["disable_cooling"] = *disableCooling
 			}

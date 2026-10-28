@@ -797,6 +797,7 @@ func schedulerAttributeSensitive(key string) bool {
 		"authorization",
 		"auth_header",
 		"proxy_url",
+		"opendesign_session",
 	} {
 		if strings.Contains(key, fragment) || strings.Contains(normalized, fragment) || strings.Contains(compact, fragment) {
 			return true

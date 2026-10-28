@@ -694,6 +694,9 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quotaSupported .
 			entry["quota_provider"] = auth.Provider
 		}
 	}
+	if util.IsOpenDesignBaseURL(authAttribute(auth, "base_url")) {
+		entry["opendesign"] = gin.H{"connected": authAttribute(auth, "opendesign_session") != ""}
+	}
 	if auth.Metadata != nil {
 		if probe, okProbe := auth.Metadata["quota_probe"]; okProbe && probe != nil {
 			entry["supports_quota"] = true
@@ -983,10 +986,10 @@ func authAttribute(auth *coreauth.Auth, key string) string {
 // isConfigQuotaAuth reports config-defined API keys that carry a quota probe (e.g. OpenCode Go).
 // They have no backing file but are listed so the management panel can show their quota.
 func isConfigQuotaAuth(auth *coreauth.Auth) bool {
-	if !coreauth.IsConfigAPIKeyAuth(auth) || auth.Disabled || auth.Metadata == nil {
+	if !coreauth.IsConfigAPIKeyAuth(auth) || auth.Disabled {
 		return false
 	}
-	return auth.Metadata["quota_probe"] != nil
+	return auth.Metadata["quota_probe"] != nil || util.IsOpenDesignBaseURL(authAttribute(auth, "base_url"))
 }
 
 func isRuntimeOnlyAuth(auth *coreauth.Auth) bool {

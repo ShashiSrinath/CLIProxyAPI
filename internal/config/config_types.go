@@ -885,6 +885,14 @@ type OpenAICompatibilityAPIKey struct {
 
 	// ProxyURL overrides the global proxy setting for this API key if provided.
 	ProxyURL string `yaml:"proxy-url,omitempty" json:"proxy-url,omitempty"`
+
+	// OpenDesignSession is the OpenDesign dashboard session cookie
+	// (__Secure-better-auth.session_token). OpenDesign's usage API accepts only this
+	// cookie, not the API key. Set through the management connect flow.
+	OpenDesignSession string `yaml:"opendesign-session,omitempty" json:"opendesign-session,omitempty"`
+
+	// OpenDesignWorkspaceID is the OpenDesign workspace that owns the API key.
+	OpenDesignWorkspaceID string `yaml:"opendesign-workspace-id,omitempty" json:"opendesign-workspace-id,omitempty"`
 }
 
 // OpenAICompatibilityModel represents a model configuration for OpenAI compatibility,
