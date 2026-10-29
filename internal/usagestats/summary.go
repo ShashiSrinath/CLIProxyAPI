@@ -194,6 +194,17 @@ func ParseSummaryQuery(values url.Values, now time.Time) (SummaryQuery, error) {
 // at query time, so price changes apply retroactively. A nil tracker yields an
 // empty response with enabled set to false.
 func (t *Tracker) Summary(q SummaryQuery, keys []ConfiguredKey, prices PriceResolver) SummaryResponse {
+	return t.summaryFiltered(q, keys, prices, nil)
+}
+
+// SummaryForCredentials aggregates credentials and optionally legacy buckets for a provider.
+func (t *Tracker) SummaryForCredentials(q SummaryQuery, authIDs map[string]bool, legacyProvider string, prices PriceResolver) SummaryResponse {
+	return t.summaryFiltered(q, nil, prices, func(row bucketRow) bool {
+		return row.authID != "" && authIDs[row.authID] || row.authID == "" && legacyProvider != "" && row.provider == legacyProvider
+	})
+}
+
+func (t *Tracker) summaryFiltered(q SummaryQuery, keys []ConfiguredKey, prices PriceResolver, filter func(bucketRow) bool) SummaryResponse {
 	loc := queryLocation(q)
 	bucket := normalizeBucket(q.Bucket)
 	from, to := q.From.UTC(), q.To.UTC()
@@ -206,6 +217,9 @@ func (t *Tracker) Summary(q SummaryQuery, keys []ConfiguredKey, prices PriceReso
 	rows, metas := t.rangeSnapshot(from.Truncate(time.Hour), to)
 	builder := newSummaryBuilder(len(slots), prices)
 	for _, row := range rows {
+		if filter != nil && !filter(row) {
+			continue
+		}
 		id := modelID{provider: row.provider, model: row.model}
 		price := builder.priceOf(id)
 		cost := costOf(row.counters, price)

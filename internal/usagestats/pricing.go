@@ -511,6 +511,12 @@ func (p *Pricing) overridePriceLocked(key string, ov config.ModelPriceOverride) 
 // catalogMatchLocked finds a catalog entry by normalized name. A trailing
 // "-thinking" is stripped only when the first lookup fails. Caller holds p.mu.
 func (p *Pricing) catalogMatchLocked(provider, model string) (CatalogEntry, bool) {
+	if strings.Contains(model, "/") {
+		id, _, _ := strings.Cut(strings.ToLower(model), ":")
+		if idx, ok := p.catalogIndexByIDLocked(id); ok {
+			return p.entries[idx], true
+		}
+	}
 	norm := normalizeModelName(model)
 	if norm == "" {
 		return CatalogEntry{}, false
@@ -524,7 +530,7 @@ func (p *Pricing) catalogMatchLocked(provider, model string) (CatalogEntry, bool
 	if len(candidates) == 0 {
 		return CatalogEntry{}, false
 	}
-	return p.entries[preferredCatalogIndex(p.entries, candidates, provider)], true
+	return p.entries[preferredCatalogIndex(p.entries, candidates, provider, model)], true
 }
 
 // catalogIndexByIDLocked looks up an OpenRouter model id, ignoring case. Caller holds p.mu.
@@ -722,8 +728,18 @@ var openRouterVendors = map[string]string{
 
 // preferredCatalogIndex picks, among candidate catalog indexes sharing a normalized
 // name, the entry from the provider's vendor, or the first in catalog order.
-func preferredCatalogIndex(entries []CatalogEntry, candidates []int, provider string) int {
-	if vendor := openRouterVendors[strings.ToLower(strings.TrimSpace(provider))]; vendor != "" {
+func preferredCatalogIndex(entries []CatalogEntry, candidates []int, provider, model string) int {
+	vendor := openRouterVendors[strings.ToLower(strings.TrimSpace(provider))]
+	if vendor == "" {
+		name := normalizeModelName(model)
+		for _, family := range []struct{ prefix, vendor string }{{"kimi", "moonshotai"}, {"glm", "z-ai"}, {"deepseek", "deepseek"}, {"qwen", "qwen"}, {"minimax", "minimax"}, {"mimo", "xiaomi"}, {"gpt", "openai"}, {"o1", "openai"}, {"o3", "openai"}, {"o4", "openai"}, {"claude", "anthropic"}, {"gemini", "google"}, {"grok", "x-ai"}} {
+			if strings.HasPrefix(name, family.prefix) {
+				vendor = family.vendor
+				break
+			}
+		}
+	}
+	if vendor != "" {
 		for _, idx := range candidates {
 			if catalogVendor(entries[idx].ID) == vendor {
 				return idx

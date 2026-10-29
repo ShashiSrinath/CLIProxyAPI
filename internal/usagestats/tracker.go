@@ -52,6 +52,7 @@ type bucketKey struct {
 	start    time.Time
 	span     string
 	keyID    string
+	authID   string
 	provider string
 	model    string
 }
@@ -195,6 +196,7 @@ func (t *Tracker) Record(ctx context.Context, record coreusage.Record) {
 		start:    timestamp.Truncate(time.Hour),
 		span:     bucketHour,
 		keyID:    keyID,
+		authID:   record.AuthID,
 		provider: provider,
 		model:    modelName,
 	}

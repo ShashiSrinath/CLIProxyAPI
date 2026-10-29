@@ -2,11 +2,14 @@ package management
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
@@ -165,6 +168,10 @@ func (h *Handler) ConfigV8(c *gin.Context) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": err.Error()})
 		return
 	}
+	if err = validateSubscriptionPlans(next.UsageTracking.Subscriptions); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_config", "message": err.Error()})
+		return
+	}
 	if err = config.ValidateV8Config(data); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_config", "message": err.Error()})
 		return
@@ -305,4 +312,29 @@ func mergeConfigV8Patch(dst, src *yaml.Node) {
 			dst.Content = append(dst.Content, key, value)
 		}
 	}
+}
+
+func validateSubscriptionPlans(plans []config.SubscriptionPlan) error {
+	seen := make(map[string]bool)
+	for _, plan := range plans {
+		id := strings.TrimSpace(plan.ID)
+		if id == "" || seen[id] {
+			return fmt.Errorf("subscription ids must be non-empty and unique")
+		}
+		seen[id] = true
+		if math.IsNaN(plan.PriceUSD) || math.IsInf(plan.PriceUSD, 0) || plan.PriceUSD < 0 {
+			return fmt.Errorf("subscription %q: price must be non-negative", id)
+		}
+		switch plan.Cycle {
+		case "", "monthly", "weekly", "yearly":
+		default:
+			return fmt.Errorf("subscription %q: invalid cycle", id)
+		}
+		if plan.AnchorDate != "" {
+			if _, err := time.Parse("2006-01-02", plan.AnchorDate); err != nil {
+				return fmt.Errorf("subscription %q: invalid anchor date", id)
+			}
+		}
+	}
+	return nil
 }

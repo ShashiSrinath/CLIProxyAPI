@@ -19,7 +19,7 @@ const (
 	bucketDay  = "day"
 
 	storeFileName = "usage-stats.json"
-	storeVersion  = 1
+	storeVersion  = 2
 
 	// hourlyWindow is how long hour buckets are kept before they are compacted
 	// into UTC-day buckets.
@@ -42,6 +42,7 @@ type bucketRecord struct {
 	Start    time.Time `json:"start"`
 	Span     string    `json:"span"`
 	KeyID    string    `json:"key_id"`
+	AuthID   string    `json:"auth_id,omitempty"`
 	Provider string    `json:"provider"`
 	Model    string    `json:"model"`
 	counters
@@ -80,6 +81,7 @@ func (t *Tracker) load() error {
 			start:    rec.Start.UTC(),
 			span:     rec.Span,
 			keyID:    rec.KeyID,
+			authID:   rec.AuthID,
 			provider: rec.Provider,
 			model:    rec.Model,
 		}
@@ -115,7 +117,7 @@ func decodeStore(data []byte) (storeFile, error) {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return storeFile{}, err
 	}
-	if file.Version != storeVersion {
+	if file.Version != 1 && file.Version != storeVersion {
 		return storeFile{}, fmt.Errorf("unsupported store version %d", file.Version)
 	}
 	for _, rec := range file.Buckets {
@@ -146,6 +148,7 @@ func (t *Tracker) snapshotLocked(now time.Time) storeFile {
 			Start:    key.start,
 			Span:     key.span,
 			KeyID:    key.keyID,
+			AuthID:   key.authID,
 			Provider: key.provider,
 			Model:    key.model,
 			counters: *c,
@@ -164,6 +167,9 @@ func sortBucketRecords(records []bucketRecord) {
 			return c
 		}
 		if c := strings.Compare(a.KeyID, b.KeyID); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.AuthID, b.AuthID); c != 0 {
 			return c
 		}
 		if c := strings.Compare(a.Provider, b.Provider); c != 0 {

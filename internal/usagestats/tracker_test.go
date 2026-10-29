@@ -270,7 +270,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 func TestCorruptStoreIsMovedAsideAndStartsEmpty(t *testing.T) {
 	cases := map[string]string{
 		"invalid json":    "{not json",
-		"unknown version": `{"version":2,"keys":{},"buckets":[]}`,
+		"unknown version": `{"version":999,"keys":{},"buckets":[]}`,
 		"bad span":        `{"version":1,"keys":{},"buckets":[{"start":"2026-10-18T13:00:00Z","span":"week","key_id":"k_x"}]}`,
 	}
 	for name, content := range cases {
@@ -428,4 +428,14 @@ func readStoreFile(dir string) (storeFile, error) {
 		return storeFile{}, err
 	}
 	return decodeStore(data)
+}
+
+func TestStoreVersionOneMigration(t *testing.T) {
+	file, err := decodeStore([]byte(`{"version":1,"keys":{},"buckets":[{"start":"2026-10-18T13:00:00Z","span":"hour","key_id":"k_x","provider":"claude","model":"m","requests":1}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Buckets) != 1 || file.Buckets[0].AuthID != "" {
+		t.Fatalf("unexpected migrated buckets: %+v", file.Buckets)
+	}
 }

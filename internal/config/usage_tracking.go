@@ -11,7 +11,8 @@ type UsageTrackingConfig struct {
 	// Empty uses "<auth-dir>/usage".
 	DataDir string `yaml:"data-dir,omitempty" json:"data-dir,omitempty"`
 	// Pricing configures model pricing used to estimate cost.
-	Pricing UsagePricingConfig `yaml:"pricing" json:"pricing"`
+	Pricing       UsagePricingConfig `yaml:"pricing" json:"pricing"`
+	Subscriptions []SubscriptionPlan `yaml:"subscriptions,omitempty" json:"subscriptions,omitempty"`
 }
 
 // UsagePricingConfig configures where model prices come from.
@@ -34,4 +35,16 @@ type ModelPriceOverride struct {
 	Output       *float64 `yaml:"output,omitempty" json:"output,omitempty"`
 	CacheRead    *float64 `yaml:"cache-read,omitempty" json:"cache-read,omitempty"`
 	CacheWrite   *float64 `yaml:"cache-write,omitempty" json:"cache-write,omitempty"`
+}
+
+// SubscriptionPlan describes a recurring subscription and its credentials.
+type SubscriptionPlan struct {
+	ID          string   `yaml:"id" json:"id"`
+	Name        string   `yaml:"name" json:"name"`
+	Provider    string   `yaml:"provider" json:"provider"`
+	PriceUSD    float64  `yaml:"price-usd" json:"price-usd"`
+	Cycle       string   `yaml:"cycle,omitempty" json:"cycle,omitempty"`
+	AnchorDate  string   `yaml:"anchor-date,omitempty" json:"anchor-date,omitempty"`
+	Credentials []string `yaml:"credentials,omitempty" json:"credentials,omitempty"`
+	Notes       string   `yaml:"notes,omitempty" json:"notes,omitempty"`
 }

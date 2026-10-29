@@ -756,3 +756,38 @@ plugins:
 		request(http.MethodDelete, path, http.StatusNotFound, "")
 	}
 }
+
+func TestConfigV8Subscriptions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("port: 8317\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{cfg: cfg, configFilePath: path}
+	router := gin.New()
+	router.PUT("/v8/management/config/*path", h.ConfigV8)
+	url := "/v8/management/config/observability/usage/tracking/subscriptions"
+	for _, tc := range []struct {
+		body   string
+		status int
+	}{
+		{`[{"id":"a","name":"A","provider":"claude","price-usd":20,"cycle":"monthly","anchor-date":"2026-10-12"}]`, http.StatusOK},
+		{`[{"id":"a"},{"id":"a"}]`, http.StatusBadRequest},
+		{`[{"id":"a","price-usd":-1}]`, http.StatusBadRequest},
+		{`[{"id":"a","cycle":"daily"}]`, http.StatusBadRequest},
+		{`[{"id":"a","anchor-date":"2026-02-30"}]`, http.StatusBadRequest},
+	} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, url, strings.NewReader(tc.body)))
+		if rec.Code != tc.status {
+			t.Fatalf("body %s: status %d: %s", tc.body, rec.Code, rec.Body.String())
+		}
+	}
+	if len(h.cfg.UsageTracking.Subscriptions) != 1 || h.cfg.UsageTracking.Subscriptions[0].ID != "a" {
+		t.Fatalf("subscriptions: %+v", h.cfg.UsageTracking.Subscriptions)
+	}
+}

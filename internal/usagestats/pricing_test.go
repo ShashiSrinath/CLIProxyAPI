@@ -234,8 +234,9 @@ func TestPricingVendorPreference(t *testing.T) {
 
 	pricingExpectPrice(t, p.Resolve("codex", "gpt-5"), "openrouter", "openai/gpt-5", 2, 4, 2, 2)
 	pricingExpectPrice(t, p.Resolve("openai", "gpt-5"), "openrouter", "openai/gpt-5", 2, 4, 2, 2)
-	// iflow has no vendor preference, so the first catalog entry wins.
-	pricingExpectPrice(t, p.Resolve("iflow", "gpt-5"), "openrouter", "alpha/gpt-5", 1, 2, 1, 1)
+	// Unknown providers infer the model family vendor.
+	pricingExpectPrice(t, p.Resolve("iflow", "gpt-5"), "openrouter", "openai/gpt-5", 2, 4, 2, 2)
+	pricingExpectPrice(t, p.Resolve("openai-compatible-test", "alpha/gpt-5:free"), "openrouter", "alpha/gpt-5", 1, 2, 1, 1)
 	// A provider whose vendor has no entry also falls back to the first entry.
 	pricingExpectPrice(t, p.Resolve("claude", "gpt-5"), "openrouter", "alpha/gpt-5", 1, 2, 1, 1)
 }
@@ -596,4 +597,11 @@ func writePricingTestCache(t *testing.T, dir string, fetchedAt time.Time) {
 	if err := os.WriteFile(filepath.Join(dir, pricingCacheFileName), []byte(body), 0o600); err != nil {
 		t.Fatalf("write cache: %v", err)
 	}
+}
+
+func TestPricingCompatModelFamilyPreference(t *testing.T) {
+	body := `{"data":[{"id":"other/kimi-k2.6","pricing":{"prompt":"0.000001","completion":"0.000002"}},{"id":"moonshotai/kimi-k2.6","pricing":{"prompt":"0.000003","completion":"0.000004"}}]}`
+	p, _ := newTestPricing(t, body, config.UsagePricingConfig{})
+	pricingExpectPrice(t, p.Resolve("openai-compatible-opencode-go", "kimi-k2.6"), "openrouter", "moonshotai/kimi-k2.6", 3, 4, 3, 3)
+	pricingExpectPrice(t, p.Resolve("openai-compatible-opencode-go", "other/kimi-k2.6:free"), "openrouter", "other/kimi-k2.6", 1, 2, 1, 1)
 }
