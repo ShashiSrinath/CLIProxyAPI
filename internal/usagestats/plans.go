@@ -68,6 +68,29 @@ func PlanOwners(plans []config.SubscriptionPlan, providers map[string]string) (m
 			}
 		}
 	}
+	// A plan that owns every credential of its provider also inherits that
+	// provider's legacy buckets recorded before auth ids were tracked.
+	sole := map[string]int{}
+	for id, provider := range providers {
+		if _, ok := legacy[provider]; ok {
+			continue
+		}
+		i, owned := owners[id]
+		if !owned || plans[i].Provider != provider {
+			sole[provider] = -1
+			continue
+		}
+		if prev, seen := sole[provider]; seen && prev != i {
+			sole[provider] = -1
+			continue
+		}
+		sole[provider] = i
+	}
+	for provider, i := range sole {
+		if i >= 0 {
+			legacy[provider] = i
+		}
+	}
 	return owners, legacy
 }
 

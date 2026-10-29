@@ -40,6 +40,26 @@ func TestPlanMatching(t *testing.T) {
 		t.Fatal(owners)
 	}
 }
+
+func TestPlanMatchingLegacyForSoleOwner(t *testing.T) {
+	plans := []config.SubscriptionPlan{
+		{Provider: "x", Credentials: []string{"a"}},
+		{Provider: "y", Credentials: []string{"b"}},
+		{Provider: "z", Credentials: []string{"d"}},
+	}
+	// x is fully owned by plan 0; y is split with an unassigned credential; z is
+	// split across plan 2 and an unassigned credential too.
+	_, legacy := PlanOwners(plans, map[string]string{"a": "x", "b": "y", "c": "y", "d": "z", "e": "z"})
+	if i, ok := legacy["x"]; !ok || i != 0 {
+		t.Fatal(legacy)
+	}
+	if _, ok := legacy["y"]; ok {
+		t.Fatal(legacy)
+	}
+	if _, ok := legacy["z"]; ok {
+		t.Fatal(legacy)
+	}
+}
 func TestPlanValueMath(t *testing.T) {
 	series := []SeriesPoint{{T: "first", Stats: Stats{CostUSD: 3}}, {T: "second", Stats: Stats{CostUSD: 4}}}
 	if got := BreakEven(series, 5); got == nil || *got != "second" || BreakEven(series, 8) != nil {
