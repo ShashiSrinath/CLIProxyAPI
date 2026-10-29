@@ -427,5 +427,18 @@ func windowLabel(key string) string {
 	case "monthly":
 		return "Monthly"
 	}
+	// OpenDesign windows are keyed by duration, e.g. "18000s".
+	if d, err := time.ParseDuration(key); err == nil {
+		switch {
+		case d == 5*time.Hour:
+			return "5 hour"
+		case d == 7*24*time.Hour:
+			return "Weekly"
+		case d%(24*time.Hour) == 0:
+			return fmt.Sprintf("%d day", d/(24*time.Hour))
+		case d%time.Hour == 0:
+			return fmt.Sprintf("%d hour", d/time.Hour)
+		}
+	}
 	return key
 }
