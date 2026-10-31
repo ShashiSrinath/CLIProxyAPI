@@ -222,7 +222,7 @@ func (t *Tracker) summaryFiltered(q SummaryQuery, keys []ConfiguredKey, prices P
 		}
 		id := modelID{provider: row.provider, model: row.model}
 		price := builder.priceOf(id)
-		cost := costOf(row.counters, price)
+		cost := costOf(row.counters, price.forPeriod(row.period))
 		slot, inSeries := slotIndex[slotStart(row.start, bucket, loc).Unix()]
 
 		builder.totals.add(row.counters, cost)

@@ -84,6 +84,7 @@ func (u *usageTracking) apply(cfg *config.Config) {
 		pricing := usagestats.NewPricing(dataDir)
 		pricing.SetHTTPClient(usagePricingHTTPClient(cfg))
 		pricing.Start(context.Background(), cfg.UsageTracking.Pricing)
+		tracker.SetPricing(pricing)
 		u.tracker, u.pricing, u.dataDir = tracker, pricing, dataDir
 		usagestats.SetActive(tracker)
 		return

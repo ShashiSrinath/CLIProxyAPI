@@ -47,23 +47,103 @@ var errPricingDisabled = errors.New("openrouter pricing fetch is disabled")
 // Source is "override", "openrouter" or "none". MatchedID is the matched override
 // or catalog id; it is empty when Source is "none".
 type Price struct {
-	Source     string  `json:"source"`
-	MatchedID  string  `json:"matched_id"`
-	Input      float64 `json:"input"`
-	Output     float64 `json:"output"`
-	CacheRead  float64 `json:"cache_read"`
-	CacheWrite float64 `json:"cache_write"`
+	Source      string             `json:"source"`
+	MatchedID   string             `json:"matched_id"`
+	Input       float64            `json:"input"`
+	Output      float64            `json:"output"`
+	CacheRead   float64            `json:"cache_read"`
+	CacheWrite  float64            `json:"cache_write"`
+	Conditional []ConditionalPrice `json:"conditional,omitempty"`
+}
+
+// ConditionalPrice contains effective rates and all conditions for a catalog tier.
+type ConditionalPrice struct {
+	UTCDays         []string `json:"utc_days,omitempty"`
+	UTCStart        *int     `json:"utc_start,omitempty"`
+	UTCEnd          *int     `json:"utc_end,omitempty"`
+	MinPromptTokens int64    `json:"min_prompt_tokens,omitempty"`
+	Input           float64  `json:"input"`
+	Output          float64  `json:"output"`
+	CacheRead       float64  `json:"cache_read"`
+	CacheWrite      float64  `json:"cache_write"`
+}
+
+// id is canonical JSON of conditions only, independent of rates and catalog order.
+func (c ConditionalPrice) id() string {
+	v := struct {
+		Days  []string `json:"days,omitempty"`
+		Start *int     `json:"start,omitempty"`
+		End   *int     `json:"end,omitempty"`
+		Min   int64    `json:"min,omitempty"`
+	}{c.UTCDays, c.UTCStart, c.UTCEnd, c.MinPromptTokens}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+func (c ConditionalPrice) matches(at time.Time, tokens int64) bool {
+	if tokens < c.MinPromptTokens {
+		return false
+	}
+	at = at.UTC()
+	day := at.Weekday()
+	if c.UTCStart != nil && c.UTCEnd != nil {
+		minute := at.Hour()*60 + at.Minute()
+		start := *c.UTCStart/100*60 + *c.UTCStart%100
+		end := *c.UTCEnd/100*60 + *c.UTCEnd%100
+		if start == end {
+			return false
+		} // An empty interval, never a full day.
+		if start < end {
+			if minute < start || minute >= end {
+				return false
+			}
+		} else {
+			if minute >= end && minute < start {
+				return false
+			}
+			if minute < end {
+				day = (day + 6) % 7
+			}
+		}
+	}
+	return len(c.UTCDays) == 0 || slices.Contains(c.UTCDays, strings.ToLower(day.String()))
+}
+
+// The highest prompt threshold wins; equal thresholds prefer the later entry.
+func (p Price) period(at time.Time, tokens int64) string {
+	best := int64(-1)
+	id := ""
+	for _, c := range p.Conditional {
+		if c.matches(at, tokens) && c.MinPromptTokens >= best {
+			best = c.MinPromptTokens
+			id = c.id()
+		}
+	}
+	return id
+}
+func (p Price) forPeriod(id string) Price {
+	if id != "" {
+		for _, c := range p.Conditional {
+			if c.id() == id {
+				p.Input = c.Input
+				p.Output = c.Output
+				p.CacheRead = c.CacheRead
+				p.CacheWrite = c.CacheWrite
+			}
+		}
+	}
+	return p
 }
 
 // CatalogEntry is one priced model from the OpenRouter catalog, in USD per one
 // million tokens. CacheRead and CacheWrite are nil when OpenRouter omits them.
 type CatalogEntry struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Input      float64  `json:"input"`
-	Output     float64  `json:"output"`
-	CacheRead  *float64 `json:"cache_read"`
-	CacheWrite *float64 `json:"cache_write"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Input       float64            `json:"input"`
+	Output      float64            `json:"output"`
+	CacheRead   *float64           `json:"cache_read"`
+	CacheWrite  *float64           `json:"cache_write"`
+	Conditional []ConditionalPrice `json:"conditional,omitempty"`
 }
 
 // PricingStatus describes the state of the price catalog. FetchedAt marshals as
@@ -113,6 +193,7 @@ type Pricing struct {
 	byNorm map[string][]int
 	// fetchedAt is the time of the last successful catalog load (cache or network).
 	fetchedAt time.Time
+	cacheOld  bool
 	// live reports whether the catalog has come from a successful network fetch.
 	live    bool
 	lastErr string
@@ -225,6 +306,7 @@ func (p *Pricing) Refresh(ctx context.Context) error {
 	fetchedAt := time.Now().UTC()
 	p.mu.Lock()
 	p.setCatalogLocked(entries, fetchedAt)
+	p.cacheOld = false
 	p.live = true
 	p.lastErr = ""
 	p.mu.Unlock()
@@ -359,6 +441,7 @@ func (p *Pricing) loadCacheLocked() {
 		return
 	}
 	p.setCatalogLocked(entries, file.FetchedAt)
+	p.cacheOld = file.Version < 2
 }
 
 // writeCache atomically writes the catalog cache file.
@@ -369,7 +452,7 @@ func (p *Pricing) writeCache(entries []CatalogEntry, fetchedAt time.Time) error 
 	if err := os.MkdirAll(p.dataDir, 0o700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(openRouterCacheFile{FetchedAt: fetchedAt, Models: entries}, "", "  ")
+	data, err := json.MarshalIndent(openRouterCacheFile{Version: 2, FetchedAt: fetchedAt, Models: entries}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -384,7 +467,7 @@ func (p *Pricing) cachePath() string {
 // there is no catalog or it is stale, otherwise the end of the current interval.
 // Caller holds p.mu (read or write).
 func (p *Pricing) nextFetchTimeLocked(now time.Time) time.Time {
-	if p.fetchedAt.IsZero() || now.Before(p.fetchedAt) {
+	if p.cacheOld || p.fetchedAt.IsZero() || now.Before(p.fetchedAt) {
 		return now
 	}
 	due := p.fetchedAt.Add(p.interval)
@@ -449,12 +532,13 @@ func (p *Pricing) resolveLocked(provider, model string) Price {
 	}
 	if e, ok := p.catalogMatchLocked(provider, model); ok {
 		return Price{
-			Source:     "openrouter",
-			MatchedID:  e.ID,
-			Input:      e.Input,
-			Output:     e.Output,
-			CacheRead:  valueOrDefault(e.CacheRead, e.Input),
-			CacheWrite: valueOrDefault(e.CacheWrite, e.Input),
+			Source:      "openrouter",
+			MatchedID:   e.ID,
+			Input:       e.Input,
+			Output:      e.Output,
+			CacheRead:   valueOrDefault(e.CacheRead, e.Input),
+			CacheWrite:  valueOrDefault(e.CacheWrite, e.Input),
+			Conditional: e.Conditional,
 		}
 	}
 	return Price{Source: "none"}
@@ -505,6 +589,9 @@ func (p *Pricing) overridePriceLocked(key string, ov config.ModelPriceOverride) 
 	price.Output = valueOrDefault(ov.Output, baseOutput)
 	price.CacheRead = valueOrDefault(ov.CacheRead, valueOrDefault(baseRead, price.Input))
 	price.CacheWrite = valueOrDefault(ov.CacheWrite, valueOrDefault(baseWrite, price.Input))
+	if base != nil && !hasManual {
+		price.Conditional = base.Conditional
+	}
 	return price, true
 }
 
@@ -583,15 +670,17 @@ type openRouterModel struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Pricing struct {
-		Prompt          json.RawMessage `json:"prompt"`
-		Completion      json.RawMessage `json:"completion"`
-		InputCacheRead  json.RawMessage `json:"input_cache_read"`
-		InputCacheWrite json.RawMessage `json:"input_cache_write"`
+		Prompt          json.RawMessage              `json:"prompt"`
+		Completion      json.RawMessage              `json:"completion"`
+		InputCacheRead  json.RawMessage              `json:"input_cache_read"`
+		InputCacheWrite json.RawMessage              `json:"input_cache_write"`
+		Overrides       []map[string]json.RawMessage `json:"overrides"`
 	} `json:"pricing"`
 }
 
 // openRouterCacheFile is the on-disk form of the catalog cache.
 type openRouterCacheFile struct {
+	Version   int            `json:"version"`
 	FetchedAt time.Time      `json:"fetched_at"`
 	Models    []CatalogEntry `json:"models"`
 }
@@ -623,9 +712,77 @@ func parseOpenRouterModels(body []byte) ([]CatalogEntry, error) {
 		if write, ok := parseOpenRouterPrice(m.Pricing.InputCacheWrite); ok {
 			entry.CacheWrite = &write
 		}
+		for _, raw := range m.Pricing.Overrides {
+			if c, ok := parseConditional(raw, entry); ok {
+				entry.Conditional = append(entry.Conditional, c)
+			}
+		}
 		entries = append(entries, entry)
 	}
 	return normalizeCatalog(entries), nil
+}
+
+// utcWeekdays lists OpenRouter's utc_days values in time.Weekday order.
+var utcWeekdays = []string{"sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"}
+
+// Unknown fields are rejected unless known to be pricing keys that these counters do not track.
+func parseConditional(raw map[string]json.RawMessage, base CatalogEntry) (ConditionalPrice, bool) {
+	c := ConditionalPrice{Input: base.Input, Output: base.Output, CacheRead: valueOrDefault(base.CacheRead, base.Input), CacheWrite: valueOrDefault(base.CacheWrite, base.Input)}
+	for key, v := range raw {
+		switch key {
+		case "utc_days":
+			if json.Unmarshal(v, &c.UTCDays) != nil {
+				return c, false
+			}
+			for _, d := range c.UTCDays {
+				if !slices.Contains(utcWeekdays, d) {
+					return c, false
+				}
+			}
+			// Weekday order (Sunday first) keeps both the period id and the UI label stable and readable.
+			slices.SortFunc(c.UTCDays, func(a, b string) int {
+				return slices.Index(utcWeekdays, a) - slices.Index(utcWeekdays, b)
+			})
+			c.UTCDays = slices.Compact(c.UTCDays)
+		case "utc_start", "utc_end":
+			var n int
+			if json.Unmarshal(v, &n) != nil || n < 0 || n > 2359 || n%100 >= 60 {
+				return c, false
+			}
+			if key == "utc_start" {
+				c.UTCStart = &n
+			} else {
+				c.UTCEnd = &n
+			}
+		case "min_prompt_tokens":
+			if json.Unmarshal(v, &c.MinPromptTokens) != nil || c.MinPromptTokens < 0 {
+				return c, false
+			}
+		case "prompt", "completion", "input_cache_read", "input_cache_write":
+			rate, ok := parseOpenRouterPrice(v)
+			if !ok || rate < 0 {
+				return c, false
+			}
+			switch key {
+			case "prompt":
+				c.Input = rate
+			case "completion":
+				c.Output = rate
+			case "input_cache_read":
+				c.CacheRead = rate
+			case "input_cache_write":
+				c.CacheWrite = rate
+			}
+		case "input_cache_write_1h", "audio", "input_audio_cache": // No corresponding usage counters.
+		default:
+			log.Warnf("usage pricing: ignoring conditional entry with unknown key %q", key)
+			return c, false
+		}
+	}
+	if (c.UTCStart == nil) != (c.UTCEnd == nil) {
+		return c, false
+	}
+	return c, true
 }
 
 // parseOpenRouterPrice reads a per-token USD price given as a decimal string or a
@@ -809,7 +966,24 @@ func cloneOverrides(in map[string]config.ModelPriceOverride) map[string]config.M
 func cloneCatalogEntry(e CatalogEntry) CatalogEntry {
 	e.CacheRead = cloneFloat(e.CacheRead)
 	e.CacheWrite = cloneFloat(e.CacheWrite)
+	e.Conditional = cloneConditional(e.Conditional)
 	return e
+}
+
+func cloneConditional(in []ConditionalPrice) []ConditionalPrice {
+	out := slices.Clone(in)
+	for i := range out {
+		out[i].UTCDays = slices.Clone(out[i].UTCDays)
+		if out[i].UTCStart != nil {
+			n := *out[i].UTCStart
+			out[i].UTCStart = &n
+		}
+		if out[i].UTCEnd != nil {
+			n := *out[i].UTCEnd
+			out[i].UTCEnd = &n
+		}
+	}
+	return out
 }
 
 func cloneFloat(v *float64) *float64 {

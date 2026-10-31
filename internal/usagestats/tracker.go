@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	internallogging "github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
@@ -36,6 +37,10 @@ type Tracker struct {
 	// flushMu serializes writes of the store file.
 	flushMu sync.Mutex
 
+	// pricing holds the PriceResolver used to classify records into tariff
+	// conditions. It is read outside mu so Record never nests the pricing lock.
+	pricing atomic.Value
+
 	// mu guards every field below.
 	mu            sync.Mutex
 	retentionDays int
@@ -55,6 +60,7 @@ type bucketKey struct {
 	authID   string
 	provider string
 	model    string
+	period   string
 }
 
 // counters are the additive values stored per bucket.
@@ -163,6 +169,17 @@ func (t *Tracker) SetRetentionDays(days int) {
 	t.retentionDays = normalizeRetention(days)
 }
 
+// SetPricing supplies the live resolver used to classify newly recorded usage.
+func (t *Tracker) SetPricing(p PriceResolver) {
+	if t == nil {
+		return
+	}
+	t.pricing.Store(pricingHolder{p})
+}
+
+// pricingHolder lets atomic.Value store a nil or any concrete PriceResolver.
+type pricingHolder struct{ resolver PriceResolver }
+
 // Record counts one usage record, which is one upstream attempt. Requests are
 // counted once per inbound request id within the recent-request window.
 func (t *Tracker) Record(ctx context.Context, record coreusage.Record) {
@@ -181,14 +198,20 @@ func (t *Tracker) Record(ctx context.Context, record coreusage.Record) {
 	tokens := tokenCountsFor(record)
 	latencyMs := record.Latency.Milliseconds()
 
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	now := t.now()
 	timestamp := record.RequestedAt
 	if timestamp.IsZero() {
 		timestamp = now
 	}
 	timestamp = timestamp.UTC()
+
+	period := ""
+	if h, ok := t.pricing.Load().(pricingHolder); ok && h.resolver != nil {
+		period = h.resolver.Resolve(provider, modelName).period(timestamp, tokens.InputTokens)
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	counted := requestID == "" || t.recent.add(keyID+dedupeSeparator+requestID, now)
 
@@ -199,6 +222,7 @@ func (t *Tracker) Record(ctx context.Context, record coreusage.Record) {
 		authID:   record.AuthID,
 		provider: provider,
 		model:    modelName,
+		period:   period,
 	}
 	bucket := t.buckets[key]
 	if bucket == nil {

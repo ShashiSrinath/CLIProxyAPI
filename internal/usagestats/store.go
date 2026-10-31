@@ -45,6 +45,7 @@ type bucketRecord struct {
 	AuthID   string    `json:"auth_id,omitempty"`
 	Provider string    `json:"provider"`
 	Model    string    `json:"model"`
+	Period   string    `json:"period,omitempty"`
 	counters
 }
 
@@ -84,6 +85,7 @@ func (t *Tracker) load() error {
 			authID:   rec.AuthID,
 			provider: rec.Provider,
 			model:    rec.Model,
+			period:   rec.Period,
 		}
 		if existing := t.buckets[key]; existing != nil {
 			existing.add(rec.counters)
@@ -151,6 +153,7 @@ func (t *Tracker) snapshotLocked(now time.Time) storeFile {
 			AuthID:   key.authID,
 			Provider: key.provider,
 			Model:    key.model,
+			Period:   key.period,
 			counters: *c,
 		})
 	}
@@ -175,7 +178,10 @@ func sortBucketRecords(records []bucketRecord) {
 		if c := strings.Compare(a.Provider, b.Provider); c != 0 {
 			return c
 		}
-		return strings.Compare(a.Model, b.Model)
+		if c := strings.Compare(a.Model, b.Model); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Period, b.Period)
 	})
 }
 
