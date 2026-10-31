@@ -29,6 +29,13 @@ func TestParseCommandCodeUsage(t *testing.T) {
 	if ParseCommandCodeUsage([]byte(`{"error":"nope"}`)) != nil {
 		t.Fatalf("expected nil for unexpected shape")
 	}
+	credits := ParseCommandCodeCredits(body)
+	if !credits.Known || credits.Monthly != 69.9177663613 || credits.Purchased != 0 {
+		t.Fatalf("credits = %+v", credits)
+	}
+	if ParseCommandCodeCredits([]byte(`{"error":"nope"}`)).Known {
+		t.Fatalf("expected unknown credits for unexpected shape")
+	}
 }
 
 func TestCommandCodeQuotaCooldown(t *testing.T) {

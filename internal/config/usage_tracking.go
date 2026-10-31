@@ -13,6 +13,14 @@ type UsageTrackingConfig struct {
 	// Pricing configures model pricing used to estimate cost.
 	Pricing       UsagePricingConfig `yaml:"pricing" json:"pricing"`
 	Subscriptions []SubscriptionPlan `yaml:"subscriptions,omitempty" json:"subscriptions,omitempty"`
+	// SmartRouting ranks credentials owned by subscription plans by their live
+	// limit windows and overrides their scheduler priority. Nil means enabled.
+	SmartRouting *bool `yaml:"smart-routing,omitempty" json:"smart-routing,omitempty"`
+}
+
+// SmartRoutingEnabled reports whether plan-aware credential ranking is active.
+func (c UsageTrackingConfig) SmartRoutingEnabled() bool {
+	return c.SmartRouting == nil || *c.SmartRouting
 }
 
 // UsagePricingConfig configures where model prices come from.
@@ -47,4 +55,8 @@ type SubscriptionPlan struct {
 	AnchorDate  string   `yaml:"anchor-date,omitempty" json:"anchor-date,omitempty"`
 	Credentials []string `yaml:"credentials,omitempty" json:"credentials,omitempty"`
 	Notes       string   `yaml:"notes,omitempty" json:"notes,omitempty"`
+	// LimitType is the plan's longest usage limit: "weekly" or "monthly". Empty auto-detects.
+	LimitType string `yaml:"limit-type,omitempty" json:"limit-type,omitempty"`
+	// Routing biases smart routing: "prefer" ranks first, "avoid" ranks last. Empty is automatic.
+	Routing string `yaml:"routing,omitempty" json:"routing,omitempty"`
 }

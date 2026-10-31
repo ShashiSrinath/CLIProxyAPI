@@ -362,7 +362,13 @@ func (e *modelCooldownError) Headers() http.Header {
 }
 
 func authPriority(auth *Auth) int {
-	if auth == nil || auth.Attributes == nil {
+	if auth == nil {
+		return 0
+	}
+	if value, ok := priorityOverride(auth.ID); ok {
+		return value
+	}
+	if auth.Attributes == nil {
 		return 0
 	}
 	raw := strings.TrimSpace(auth.Attributes["priority"])

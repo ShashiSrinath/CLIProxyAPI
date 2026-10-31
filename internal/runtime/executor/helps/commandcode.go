@@ -88,11 +88,37 @@ func CommandCodeQuotaCooldown(windows []CommandCodeUsageWindow, now time.Time) (
 
 // FetchCommandCodeUsage reads the rolling usage windows for one API key.
 func FetchCommandCodeUsage(ctx context.Context, client *http.Client, baseURL, apiKey string) ([]CommandCodeUsageWindow, error) {
+	windows, _, errFetch := FetchCommandCodeBilling(ctx, client, baseURL, apiKey)
+	return windows, errFetch
+}
+
+// CommandCodeCredits is the remaining account balance in credit-value dollars.
+type CommandCodeCredits struct {
+	Monthly   float64
+	Purchased float64
+	Known     bool
+}
+
+// ParseCommandCodeCredits extracts the remaining monthly and purchased credits from a credits response body.
+func ParseCommandCodeCredits(body []byte) CommandCodeCredits {
+	credits := gjson.GetBytes(body, "credits")
+	if !credits.IsObject() {
+		return CommandCodeCredits{}
+	}
+	return CommandCodeCredits{
+		Monthly:   credits.Get("monthlyCredits").Float(),
+		Purchased: credits.Get("purchasedCredits").Float(),
+		Known:     credits.Get("monthlyCredits").Exists(),
+	}
+}
+
+// FetchCommandCodeBilling reads the rolling usage windows and remaining credits for one API key.
+func FetchCommandCodeBilling(ctx context.Context, client *http.Client, baseURL, apiKey string) ([]CommandCodeUsageWindow, CommandCodeCredits, error) {
 	body, errFetch := fetchCommandCodeBilling(ctx, client, util.CommandCodeCreditsURL(baseURL), apiKey)
 	if errFetch != nil {
-		return nil, fmt.Errorf("command code usage: %w", errFetch)
+		return nil, CommandCodeCredits{}, fmt.Errorf("command code usage: %w", errFetch)
 	}
-	return ParseCommandCodeUsage(body), nil
+	return ParseCommandCodeUsage(body), ParseCommandCodeCredits(body), nil
 }
 
 // Command Code rejects generation with HTTP 400 when the account balance cannot cover

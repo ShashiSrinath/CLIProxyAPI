@@ -330,6 +330,16 @@ func validateSubscriptionPlans(plans []config.SubscriptionPlan) error {
 		default:
 			return fmt.Errorf("subscription %q: invalid cycle", id)
 		}
+		switch plan.LimitType {
+		case "", "weekly", "monthly":
+		default:
+			return fmt.Errorf("subscription %q: invalid limit type", id)
+		}
+		switch plan.Routing {
+		case "", "auto", "prefer", "avoid":
+		default:
+			return fmt.Errorf("subscription %q: invalid routing", id)
+		}
 		if plan.AnchorDate != "" {
 			if _, err := time.Parse("2006-01-02", plan.AnchorDate); err != nil {
 				return fmt.Errorf("subscription %q: invalid anchor date", id)

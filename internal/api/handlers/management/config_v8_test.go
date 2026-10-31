@@ -780,6 +780,9 @@ func TestConfigV8Subscriptions(t *testing.T) {
 		{`[{"id":"a","price-usd":-1}]`, http.StatusBadRequest},
 		{`[{"id":"a","cycle":"daily"}]`, http.StatusBadRequest},
 		{`[{"id":"a","anchor-date":"2026-02-30"}]`, http.StatusBadRequest},
+		{`[{"id":"a","limit-type":"daily"}]`, http.StatusBadRequest},
+		{`[{"id":"a","routing":"always"}]`, http.StatusBadRequest},
+		{`[{"id":"a","name":"A","provider":"claude","price-usd":20,"limit-type":"weekly","routing":"prefer"}]`, http.StatusOK},
 	} {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, url, strings.NewReader(tc.body)))
@@ -787,7 +790,19 @@ func TestConfigV8Subscriptions(t *testing.T) {
 			t.Fatalf("body %s: status %d: %s", tc.body, rec.Code, rec.Body.String())
 		}
 	}
-	if len(h.cfg.UsageTracking.Subscriptions) != 1 || h.cfg.UsageTracking.Subscriptions[0].ID != "a" {
-		t.Fatalf("subscriptions: %+v", h.cfg.UsageTracking.Subscriptions)
+	if plans := h.cfg.UsageTracking.Subscriptions; len(plans) != 1 || plans[0].ID != "a" || plans[0].LimitType != "weekly" || plans[0].Routing != "prefer" {
+		t.Fatalf("subscriptions: %+v", plans)
+	}
+	if !h.cfg.UsageTracking.SmartRoutingEnabled() {
+		t.Fatal("smart routing must default to enabled")
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/v8/management/config/observability/usage/tracking/smart-routing", strings.NewReader(`false`)))
+	if rec.Code != http.StatusOK || h.cfg.UsageTracking.SmartRoutingEnabled() {
+		t.Fatalf("smart-routing toggle: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, errRead := os.ReadFile(path)
+	if errRead != nil || !strings.Contains(string(saved), "smart-routing: false") || !strings.Contains(string(saved), "limit-type") {
+		t.Fatalf("saved config: %v\n%s", errRead, saved)
 	}
 }

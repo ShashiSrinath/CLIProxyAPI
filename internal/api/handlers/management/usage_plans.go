@@ -2,9 +2,7 @@ package management
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -12,10 +10,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/planlimits"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/planrouting"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/usagestats"
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
 	authpkg "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
@@ -24,172 +21,18 @@ type planWindow struct {
 	Label          string   `json:"label"`
 	WindowStart    string   `json:"window_start"`
 	ResetsAt       string   `json:"resets_at"`
-	UsedFraction   float64  `json:"used_fraction"`
+	UsedFraction   *float64 `json:"used_fraction"`
 	ValueUSD       float64  `json:"value_usd"`
 	EstCapacityUSD *float64 `json:"est_capacity_usd"`
 	EstHeadroomUSD *float64 `json:"est_headroom_usd"`
 	ProviderUsed   *float64 `json:"provider_used"`
 	ProviderLimit  *float64 `json:"provider_limit"`
-	Unit           string   `json:"unit"`
-	Exhausted      bool     `json:"exhausted"`
-}
-type liveWindow struct {
-	key          string
-	start, reset time.Time
-	fraction     float64
-	used, limit  *float64
-	unit         string
-	exhausted    bool
-}
-type liveResult struct {
-	windows   []liveWindow
-	err       string
-	at        time.Time
-	signature string
-}
-type anchorResult struct {
-	end, at   time.Time
-	signature string
+	// ProviderRemaining is set when the provider reports only a remaining balance.
+	ProviderRemaining *float64 `json:"provider_remaining"`
+	Unit              string   `json:"unit"`
+	Exhausted         bool     `json:"exhausted"`
 }
 
-var plansCache = struct {
-	sync.Mutex
-	windows map[string]liveResult
-	anchors map[string]anchorResult
-}{windows: map[string]liveResult{}, anchors: map[string]anchorResult{}}
-
-func credentialLabel(a *authpkg.Auth) string {
-	if name := a.Attributes["compat_name"]; name != "" {
-		key := a.Attributes["api_key"]
-		mask := "••••"
-		if len(key) > 8 {
-			mask = key[:4] + "…" + key[len(key)-4:]
-		}
-		return name + " · " + mask
-	}
-	for _, k := range []string{"email", "account"} {
-		if v := a.Attributes[k]; v != "" {
-			return v
-		}
-		if v, ok := a.Metadata[k].(string); ok && v != "" {
-			return v
-		}
-	}
-	if a.FileName != "" {
-		return filepath.Base(a.FileName)
-	}
-	return filepath.Base(a.ID)
-}
-func liveSignature(a *authpkg.Auth) string {
-	return a.Attributes["base_url"] + "\x00" + a.Attributes["api_key"] + "\x00" + a.Attributes["opendesign_session"] + "\x00" + a.Attributes["opendesign_workspace_id"] + "\x00" + a.ProxyURL
-}
-func liveUsage(ctx context.Context, cfg *config.Config, a *authpkg.Auth) liveResult {
-	sig := liveSignature(a)
-	now := time.Now()
-	plansCache.Lock()
-	cached, ok := plansCache.windows[a.ID]
-	plansCache.Unlock()
-	if ok && cached.signature == sig && now.Sub(cached.at) < time.Minute {
-		return cached
-	}
-	result := liveResult{at: now, signature: sig, windows: []liveWindow{}}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	client := helps.NewProxyAwareHTTPClient(ctx, cfg, a, 10*time.Second)
-	base, key := a.Attributes["base_url"], a.Attributes["api_key"]
-	var err error
-	switch {
-	case util.IsOpenCodeGoBaseURL(base):
-		var rows []helps.OpenCodeGoUsageWindow
-		rows, err = helps.FetchOpenCodeGoUsage(ctx, client, base, key)
-		for _, w := range rows {
-			start := windowStart(w.Key, w.ResetsAt)
-			result.windows = append(result.windows, liveWindow{key: w.Key, start: start, reset: w.ResetsAt, fraction: w.Percent / 100, unit: "percent", exhausted: w.Exhausted()})
-		}
-	case util.IsCommandCodeBaseURL(base):
-		var rows []helps.CommandCodeUsageWindow
-		rows, err = helps.FetchCommandCodeUsage(ctx, client, base, key)
-		for _, w := range rows {
-			fraction := 0.0
-			if w.Cap > 0 {
-				fraction = w.Used / w.Cap
-			}
-			used, limit := w.Used, w.Cap
-			result.windows = append(result.windows, liveWindow{key: w.Key, start: windowStart(w.Key, w.ResetsAt), reset: w.ResetsAt, fraction: fraction, used: &used, limit: &limit, unit: "usd", exhausted: w.Exhausted()})
-		}
-	case util.IsOpenDesignBaseURL(base) && a.Attributes["opendesign_session"] != "" && a.Attributes["opendesign_workspace_id"] != "":
-		var usage *helps.OpenDesignUsage
-		usage, err = helps.FetchOpenDesignUsage(ctx, client, a.Attributes["opendesign_session"], a.Attributes["opendesign_workspace_id"])
-		if usage != nil {
-			for _, w := range usage.Windows {
-				fraction := 0.0
-				if w.LimitCredits > 0 {
-					fraction = w.UsedCredits / w.LimitCredits
-				}
-				used, limit := w.UsedCredits, w.LimitCredits
-				k := fmt.Sprintf("%ds", w.DurationSeconds)
-				result.windows = append(result.windows, liveWindow{key: k, start: w.WindowStart, reset: w.ResetsAt, fraction: fraction, used: &used, limit: &limit, unit: "credits", exhausted: w.LimitCredits > 0 && w.UsedCredits >= w.LimitCredits})
-			}
-		}
-	}
-	if err != nil {
-		result.err = "Unable to fetch usage windows"
-	}
-	plansCache.Lock()
-	plansCache.windows[a.ID] = result
-	plansCache.Unlock()
-	return result
-}
-func windowStart(key string, reset time.Time) time.Time {
-	if reset.IsZero() {
-		return time.Time{}
-	}
-	switch key {
-	case "rolling", "fiveHour":
-		return reset.Add(-5 * time.Hour)
-	case "weekly":
-		return reset.Add(-7 * 24 * time.Hour)
-	case "monthly":
-		y, m, d := reset.Date()
-		first := time.Date(y, m-1, 1, reset.Hour(), reset.Minute(), reset.Second(), reset.Nanosecond(), reset.Location())
-		last := time.Date(first.Year(), first.Month()+1, 0, 0, 0, 0, 0, reset.Location()).Day()
-		if d > last {
-			d = last
-		}
-		return time.Date(first.Year(), first.Month(), d, reset.Hour(), reset.Minute(), reset.Second(), reset.Nanosecond(), reset.Location())
-	}
-	return reset
-}
-func providerAnchor(ctx context.Context, cfg *config.Config, a *authpkg.Auth, live liveResult) time.Time {
-	base := a.Attributes["base_url"]
-	if util.IsOpenCodeGoBaseURL(base) {
-		for _, w := range live.windows {
-			if w.key == "monthly" {
-				return w.reset
-			}
-		}
-		return time.Time{}
-	}
-	if !util.IsCommandCodeBaseURL(base) {
-		return time.Time{}
-	}
-	sig := liveSignature(a)
-	plansCache.Lock()
-	cached, ok := plansCache.anchors[a.ID]
-	plansCache.Unlock()
-	if ok && cached.signature == sig && time.Since(cached.at) < time.Hour {
-		return cached.end
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	end, err := helps.FetchCommandCodeSubscriptionPeriodEnd(ctx, helps.NewProxyAwareHTTPClient(ctx, cfg, a, 10*time.Second), base, a.Attributes["api_key"])
-	if err == nil && !end.IsZero() {
-		plansCache.Lock()
-		plansCache.anchors[a.ID] = anchorResult{end: end, at: time.Now(), signature: sig}
-		plansCache.Unlock()
-	}
-	return end
-}
 func stamp(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -252,11 +95,11 @@ func (h *Handler) GetUsagePlans(c *gin.Context) {
 		if i, ok := owners[a.ID]; ok {
 			id = plans[i].ID
 		}
-		available = append(available, gin.H{"auth_id": a.ID, "label": credentialLabel(a), "provider": a.Provider, "plan_id": id})
+		available = append(available, gin.H{"auth_id": a.ID, "label": planlimits.Label(a), "provider": a.Provider, "plan_id": id})
 	}
 	payload["providers"] = providerList
 	payload["available_credentials"] = available
-	lives := make(map[string]liveResult)
+	lives := make(map[string]planlimits.Live)
 	anchors := make(map[string]time.Time)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -269,10 +112,10 @@ func (h *Handler) GetUsagePlans(c *gin.Context) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 			defer cancel()
-			live := liveUsage(ctx, cfg, a)
+			live := planlimits.Fetch(ctx, cfg, a)
 			anchor := time.Time{}
 			if plans[owners[a.ID]].AnchorDate == "" {
-				anchor = providerAnchor(ctx, cfg, a, live)
+				anchor = planlimits.Anchor(ctx, cfg, a, live)
 			}
 			mu.Lock()
 			lives[a.ID] = live
@@ -356,6 +199,8 @@ func (h *Handler) GetUsagePlans(c *gin.Context) {
 			share = float64(unpriced) / float64(tokens)
 		}
 		credentials := []any{}
+		knownMonthly := false
+		var planWindows []planlimits.Window
 		for _, a := range auths {
 			if !ids[a.ID] {
 				continue
@@ -363,17 +208,27 @@ func (h *Handler) GetUsagePlans(c *gin.Context) {
 			single := map[string]bool{a.ID: true}
 			value := tracker.SummaryForCredentials(usageQuery(start, until, loc, "day"), single, "", pricing).Totals.CostUSD
 			windows := []planWindow{}
-			for _, w := range lives[a.ID].windows {
+			for _, w := range lives[a.ID].Windows {
 				val := 0.0
-				if !w.start.IsZero() && w.start.Before(now) {
-					val = tracker.SummaryForCredentials(usageQuery(w.start, now, loc, "day"), single, "", pricing).Totals.CostUSD
+				if !w.Start.IsZero() && w.Start.Before(now) {
+					val = tracker.SummaryForCredentials(usageQuery(w.Start, now, loc, "day"), single, "", pricing).Totals.CostUSD
 				}
-				cap, head := usagestats.WindowCapacity(val, w.fraction)
-				windows = append(windows, planWindow{Key: w.key, Label: windowLabel(w.key), WindowStart: stamp(w.start), ResetsAt: stamp(w.reset), UsedFraction: w.fraction, ValueUSD: val, EstCapacityUSD: cap, EstHeadroomUSD: head, ProviderUsed: w.used, ProviderLimit: w.limit, Unit: w.unit, Exhausted: w.exhausted})
+				var fraction, capacity, headroom *float64
+				if w.HasFraction {
+					f := w.Fraction
+					fraction = &f
+					capacity, headroom = usagestats.WindowCapacity(val, w.Fraction)
+				}
+				windows = append(windows, planWindow{Key: w.Key, Label: planlimits.WindowLabel(w.Key), WindowStart: stamp(w.Start), ResetsAt: stamp(w.Reset), UsedFraction: fraction, ValueUSD: val, EstCapacityUSD: capacity, EstHeadroomUSD: headroom, ProviderUsed: w.Used, ProviderLimit: w.Limit, ProviderRemaining: w.Remaining, Unit: w.Unit, Exhausted: w.Exhausted})
 			}
-			credentials = append(credentials, gin.H{"auth_id": a.ID, "label": credentialLabel(a), "provider": a.Provider, "status": a.Status, "disabled": a.Disabled, "value_usd": value, "windows": windows, "windows_error": lives[a.ID].err})
+			if planlimits.HasMonthlyLimit(a) {
+				knownMonthly = true
+			}
+			planWindows = append(planWindows, lives[a.ID].Windows...)
+			credentials = append(credentials, gin.H{"auth_id": a.ID, "label": planlimits.Label(a), "provider": a.Provider, "status": a.Status, "disabled": a.Disabled, "value_usd": value, "windows": windows, "windows_error": lives[a.ID].Err})
 		}
-		resultPlans = append(resultPlans, gin.H{"id": p.ID, "name": p.Name, "provider": p.Provider, "notes": p.Notes, "price_usd": p.PriceUSD, "cycle": cycle, "anchor_date": anchor.Format("2006-01-02"), "anchor_source": source, "cycle_start": stamp(start), "cycle_end": stamp(end), "elapsed_days": elapsed, "length_days": length, "value_usd": summary.Totals.CostUSD, "multiplier": usagestats.PlanMultiplier(summary.Totals.CostUSD, p.PriceUSD), "break_even_at": breakEven, "projected_value_usd": projection, "last_7d_value_usd": last, "effective_usd_per_mtok": effective, "unpriced_token_share": share, "totals": summary.Totals, "series": series, "models": summary.Models, "credentials": credentials})
+		limitType, limitSource := planrouting.LimitType(p.LimitType, knownMonthly, planWindows)
+		resultPlans = append(resultPlans, gin.H{"id": p.ID, "name": p.Name, "provider": p.Provider, "notes": p.Notes, "price_usd": p.PriceUSD, "cycle": cycle, "anchor_date": anchor.Format("2006-01-02"), "anchor_source": source, "cycle_start": stamp(start), "cycle_end": stamp(end), "elapsed_days": elapsed, "length_days": length, "value_usd": summary.Totals.CostUSD, "multiplier": usagestats.PlanMultiplier(summary.Totals.CostUSD, p.PriceUSD), "break_even_at": breakEven, "projected_value_usd": projection, "last_7d_value_usd": last, "effective_usd_per_mtok": effective, "unpriced_token_share": share, "totals": summary.Totals, "series": series, "models": summary.Models, "credentials": credentials, "limit_type": limitType, "limit_type_source": limitSource, "routing": planRoutingMode(p.Routing)})
 		totalPrice += p.PriceUSD
 		totalValue += summary.Totals.CostUSD
 		totalProjection += projection
@@ -392,7 +247,7 @@ func (h *Handler) GetUsagePlans(c *gin.Context) {
 		}
 		s := tracker.SummaryForCredentials(q, map[string]bool{a.ID: true}, "", pricing)
 		if s.Totals.Requests > 0 || s.Totals.CostUSD > 0 {
-			unassigned = append(unassigned, gin.H{"auth_id": a.ID, "label": credentialLabel(a), "provider": a.Provider, "value_usd": s.Totals.CostUSD, "requests": s.Totals.Requests})
+			unassigned = append(unassigned, gin.H{"auth_id": a.ID, "label": planlimits.Label(a), "provider": a.Provider, "value_usd": s.Totals.CostUSD, "requests": s.Totals.Requests})
 		}
 	}
 	// Include historical credentials and legacy provider buckets even after removal.
@@ -413,32 +268,49 @@ func (h *Handler) GetUsagePlans(c *gin.Context) {
 			unassigned = append(unassigned, gin.H{"auth_id": id, "label": label, "provider": provider, "value_usd": s.Totals.CostUSD, "requests": s.Totals.Requests})
 		}
 	}
+	payload["routing"] = h.routingPayload(c.Request.Context())
 	payload["plans"] = resultPlans
 	payload["unassigned"] = unassigned
 	payload["totals"] = gin.H{"price_usd": totalPrice, "value_usd": totalValue, "multiplier": usagestats.PlanMultiplier(totalValue, totalPrice), "projected_value_usd": totalProjection, "unassigned_value_usd": unassignedTotal}
 	c.JSON(http.StatusOK, payload)
 }
-func windowLabel(key string) string {
-	switch key {
-	case "rolling", "fiveHour":
-		return "5 hour"
-	case "weekly":
-		return "Weekly"
-	case "monthly":
-		return "Monthly"
+
+func planRoutingMode(routing string) string {
+	switch routing {
+	case planrouting.RoutingPrefer, planrouting.RoutingAvoid:
+		return routing
 	}
-	// OpenDesign windows are keyed by duration, e.g. "18000s".
-	if d, err := time.ParseDuration(key); err == nil {
-		switch {
-		case d == 5*time.Hour:
-			return "5 hour"
-		case d == 7*24*time.Hour:
-			return "Weekly"
-		case d%(24*time.Hour) == 0:
-			return fmt.Sprintf("%d day", d/(24*time.Hour))
-		case d%time.Hour == 0:
-			return fmt.Sprintf("%d hour", d/time.Hour)
+	return planrouting.RoutingAuto
+}
+
+// routingPayload reports the order smart routing currently applies to plan credentials.
+func (h *Handler) routingPayload(ctx context.Context) gin.H {
+	payload := gin.H{"enabled": false, "computed_at": "", "refresh_seconds": int(planrouting.RefreshInterval / time.Second), "order": []any{}}
+	if h.planRouting == nil {
+		if h.cfg != nil {
+			payload["enabled"] = h.cfg.UsageTracking.SmartRoutingEnabled()
 		}
+		return payload
 	}
-	return key
+	// Management saves update h.cfg before the async server reload reaches the
+	// engine; applying it here makes the response reflect the saved plans.
+	if h.cfg != nil {
+		h.planRouting.Apply(h.cfg)
+	}
+	snap := h.planRouting.Snapshot(ctx)
+	order := make([]any, 0, len(snap.Entries))
+	for _, e := range snap.Entries {
+		order = append(order, gin.H{
+			"rank": e.Rank, "auth_id": e.AuthID, "label": e.Label, "provider": e.Provider,
+			"plan_id": e.PlanID, "plan_name": e.PlanName, "priority": e.Priority,
+			"limit_type": e.LimitType, "limit_type_source": e.LimitTypeSource, "routing": e.Routing,
+			"full_reset_at": stamp(e.FullResetAt), "full_reset_estimated": e.FullResetEstimated,
+			"remaining_fraction": e.RemainingFraction, "state": e.State,
+			"paused_until": stamp(e.PausedUntil), "paused_window": e.PausedWindow,
+		})
+	}
+	payload["enabled"] = snap.Enabled
+	payload["computed_at"] = stamp(snap.ComputedAt)
+	payload["order"] = order
+	return payload
 }

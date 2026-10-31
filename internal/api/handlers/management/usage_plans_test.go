@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/planlimits"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/usagestats"
 	authpkg "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestUsagePlansDisabledContractAndMask(t *testing.T) {
@@ -32,7 +32,7 @@ func TestUsagePlansDisabledContractAndMask(t *testing.T) {
 		t.Fatal(got)
 	}
 	secret := "sk-abcdef123456789"
-	label := credentialLabel(&authpkg.Auth{Attributes: map[string]string{"compat_name": "test", "api_key": secret}})
+	label := planlimits.Label(&authpkg.Auth{Attributes: map[string]string{"compat_name": "test", "api_key": secret}})
 	if strings.Contains(label, secret) || label != "test · sk-a…6789" {
 		t.Fatal(label)
 	}
@@ -70,26 +70,9 @@ func TestUsagePlansEnabledContract(t *testing.T) {
 	if err = json.Unmarshal(rec.Body.Bytes(), &body); err != nil || len(body.Plans) != 1 {
 		t.Fatal(err, rec.Body.String())
 	}
-	for _, key := range []string{"id", "anchor_source", "cycle_start", "cycle_end", "multiplier", "break_even_at", "projected_value_usd", "last_7d_value_usd", "effective_usd_per_mtok", "unpriced_token_share", "totals", "series", "models", "credentials"} {
+	for _, key := range []string{"id", "limit_type", "limit_type_source", "routing", "anchor_source", "cycle_start", "cycle_end", "multiplier", "break_even_at", "projected_value_usd", "last_7d_value_usd", "effective_usd_per_mtok", "unpriced_token_share", "totals", "series", "models", "credentials"} {
 		if _, ok := body.Plans[0][key]; !ok {
 			t.Fatal(key)
 		}
-	}
-}
-
-func TestProviderAnchorAndWindowMonthClamp(t *testing.T) {
-	reset := time.Date(2024, time.March, 31, 12, 0, 0, 0, time.UTC)
-	start := windowStart("monthly", reset)
-	if start.Month() != time.February || start.Day() != 29 {
-		t.Fatal(start)
-	}
-	a := &authpkg.Auth{Attributes: map[string]string{"base_url": "https://opencode.ai/zen/go/v1"}}
-	got := providerAnchor(context.Background(), nil, a, liveResult{windows: []liveWindow{{key: "monthly", reset: reset}}})
-	if !got.Equal(reset) {
-		t.Fatal(got)
-	}
-	a.Attributes["base_url"] = "https://example.com"
-	if !providerAnchor(context.Background(), nil, a, liveResult{}).IsZero() {
-		t.Fatal("unexpected anchor")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/buildinfo"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/planrouting"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginhost"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginstore"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
@@ -65,6 +66,12 @@ type Handler struct {
 	pluginStoreRateLimiter  *pluginstore.GitHubRateLimiter
 	pluginReleases          pluginReleaseCache
 	usageDashboard          UsageDashboardSource
+	planRouting             *planrouting.Engine
+}
+
+// SetPlanRouting attaches the smart routing engine used by the plans endpoint.
+func (h *Handler) SetPlanRouting(engine *planrouting.Engine) {
+	h.planRouting = engine
 }
 
 type configReloadSnapshot struct {

@@ -24,6 +24,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/managementasset"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/planrouting"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginhost"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/redisqueue"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v8/sdk/access"
@@ -60,6 +61,9 @@ type Server struct {
 
 	// usage owns per-client-key usage tracking and model pricing.
 	usage *usageTracking
+
+	// routing ranks subscription plan credentials and applies dynamic priorities.
+	routing *planrouting.Engine
 
 	// oldConfigYaml stores a YAML snapshot of the previous configuration for change detection.
 	// This prevents issues when the config object is modified in place by Management API.
@@ -215,6 +219,8 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	s.mgmt = managementHandlers.NewHandler(cfg, configFilePath, authManager)
 	s.usage = &usageTracking{}
 	s.mgmt.SetUsageDashboard(s.usage)
+	s.routing = planrouting.NewEngine(authManager)
+	s.mgmt.SetPlanRouting(s.routing)
 	s.mgmt.SetPluginHost(optionState.pluginHost)
 	s.mgmt.SetConfigReloadHook(optionState.configReloadHook)
 	s.mgmt.StartOpenDesignKeepAlive()
@@ -303,6 +309,7 @@ func (s *Server) Start() error {
 
 	cfg := s.getConfig()
 	s.usage.start(cfg)
+	s.routing.Start(cfg)
 	useTLS := cfg != nil && cfg.TLS.Enable
 	if useTLS {
 		certPath := strings.TrimSpace(cfg.TLS.Cert)
@@ -453,6 +460,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.codexLiveHandler.Close()
 	}
 	s.usage.stop(ctx)
+	s.routing.Stop()
 	if errCloseServer != nil {
 		return fmt.Errorf("failed to shutdown HTTP server: %v", errCloseServer)
 	}
