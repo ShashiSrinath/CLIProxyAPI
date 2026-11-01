@@ -33,6 +33,21 @@ func TestParseCommandCodeUsage(t *testing.T) {
 	if !credits.Known || credits.Monthly != 69.9177663613 || credits.Purchased != 0 {
 		t.Fatalf("credits = %+v", credits)
 	}
+	if credits.Exhausted() {
+		t.Fatalf("a $69 balance must be usable")
+	}
+	// Exhausted accounts keep a ~$0.06 dust balance (observed 0.0557 and 0.0636).
+	for _, balance := range []string{"0.0557380141", "0.0636102911", "0.07", "0", "-0.2"} {
+		if dust := ParseCommandCodeCredits([]byte(`{"credits":{"monthlyCredits":` + balance + `,"purchasedCredits":0}}`)); !dust.Exhausted() {
+			t.Fatalf("balance %s must be exhausted: %+v", balance, dust)
+		}
+	}
+	if usable := ParseCommandCodeCredits([]byte(`{"credits":{"monthlyCredits":0.08,"purchasedCredits":0}}`)); usable.Exhausted() {
+		t.Fatalf("$0.08 must stay usable: %+v", usable)
+	}
+	if topped := ParseCommandCodeCredits([]byte(`{"credits":{"monthlyCredits":0.05,"purchasedCredits":5}}`)); topped.Exhausted() {
+		t.Fatalf("purchased credits must keep the key usable: %+v", topped)
+	}
 	if ParseCommandCodeCredits([]byte(`{"error":"nope"}`)).Known {
 		t.Fatalf("expected unknown credits for unexpected shape")
 	}

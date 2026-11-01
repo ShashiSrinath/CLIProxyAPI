@@ -140,8 +140,8 @@ func Fetch(ctx context.Context, cfg *config.Config, a *authpkg.Auth) Live {
 			// Monthly plan credits refill at the subscription period end; the API
 			// reports only the remaining balance, not the monthly allowance.
 			end := Anchor(ctx, cfg, a, result)
-			remaining := credits.Monthly + credits.Purchased
-			result.Windows = append(result.Windows, Window{Key: "monthly", Start: WindowStart("monthly", end), Reset: end, Remaining: &remaining, Unit: "usd", Exhausted: remaining <= 0})
+			remaining := credits.Remaining()
+			result.Windows = append(result.Windows, Window{Key: "monthly", Start: WindowStart("monthly", end), Reset: end, Remaining: &remaining, Unit: "usd", Exhausted: credits.Exhausted()})
 		}
 	case util.IsOpenDesignBaseURL(base) && a.Attributes["opendesign_session"] != "" && a.Attributes["opendesign_workspace_id"] != "":
 		var usage *helps.OpenDesignUsage

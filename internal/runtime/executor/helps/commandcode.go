@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -92,6 +93,12 @@ func FetchCommandCodeUsage(ctx context.Context, client *http.Client, baseURL, ap
 	return windows, errFetch
 }
 
+// CommandCodeExhaustedCredits is the balance, in whole cents, at or below which a
+// Command Code account is treated as exhausted. Exhausted accounts report a
+// leftover dust balance of about $0.06 that can no longer serve requests until
+// the monthly refill; $0.07 leaves a small margin above it.
+const CommandCodeExhaustedCredits = 0.07
+
 // CommandCodeCredits is the remaining account balance in credit-value dollars.
 type CommandCodeCredits struct {
 	Monthly   float64
@@ -110,6 +117,16 @@ func ParseCommandCodeCredits(body []byte) CommandCodeCredits {
 		Purchased: credits.Get("purchasedCredits").Float(),
 		Known:     credits.Get("monthlyCredits").Exists(),
 	}
+}
+
+// Remaining returns the total spendable balance.
+func (c CommandCodeCredits) Remaining() float64 {
+	return c.Monthly + c.Purchased
+}
+
+// Exhausted reports whether the balance is too low to serve requests.
+func (c CommandCodeCredits) Exhausted() bool {
+	return c.Known && math.Round(c.Remaining()*100) <= math.Round(CommandCodeExhaustedCredits*100)
 }
 
 // FetchCommandCodeBilling reads the rolling usage windows and remaining credits for one API key.
