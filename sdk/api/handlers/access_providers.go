@@ -144,12 +144,14 @@ func providerNotAllowedError(modelName string) *interfaces.ErrorMessage {
 }
 
 // FilterModelsForRequest removes models that no provider allowed for the client API key serves.
+// Models outside the key's model allow-list are dropped as well.
 func (h *BaseAPIHandler) FilterModelsForRequest(c *gin.Context, models []map[string]any) []map[string]any {
 	if h == nil {
 		return models
 	}
 	allowed := ProviderAllowListForRequest(h.Cfg, c)
-	if allowed == nil {
+	modelsAllowed := ModelAllowListForRequest(h.Cfg, c)
+	if allowed == nil && modelsAllowed == nil {
 		return models
 	}
 	modelRegistry := registry.GetGlobalRegistry()
@@ -160,9 +162,13 @@ func (h *BaseAPIHandler) FilterModelsForRequest(c *gin.Context, models []map[str
 			name, _ := model["name"].(string)
 			id = strings.TrimPrefix(name, "models/")
 		}
-		if id != "" && len(allowed.Filter(modelRegistry.GetModelProviders(id))) > 0 {
-			out = append(out, model)
+		if !modelsAllowed.Allows(id) {
+			continue
 		}
+		if allowed != nil && (id == "" || len(allowed.Filter(modelRegistry.GetModelProviders(id))) == 0) {
+			continue
+		}
+		out = append(out, model)
 	}
 	return out
 }

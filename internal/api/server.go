@@ -308,6 +308,7 @@ func (s *Server) Start() error {
 	}
 
 	cfg := s.getConfig()
+	setKeyBudgetChecker()
 	s.usage.start(cfg)
 	s.routing.Start(cfg)
 	useTLS := cfg != nil && cfg.TLS.Enable

@@ -99,6 +99,19 @@ access:
   # api-key-names:
   #   "your-api-key-1": "Laptop"
   #   "your-api-key-2": "CI"
+  # Optional per-key model allow-lists (case-insensitive `*` glob patterns applied to
+  # the requested model id, in addition to api-key-providers). Keys without an entry
+  # may use every model; "*" matches everything.
+  # api-key-models:
+  #   "your-api-key-2": ["deepseek-*", "kimi-k2*", "glm-5*"]
+  #   "your-api-key-3": ["claude-*"]
+  # Optional per-key API-equivalent spend budgets in USD per calendar day, week and
+  # month (0 or missing = no cap). Once a window is exhausted the key gets HTTP 429
+  # until the window resets. Spend is estimated from OpenRouter list prices; unpriced
+  # models count as $0, so combine budgets with api-key-models. timezone is an IANA
+  # name and defaults to UTC.
+  # api-key-limits:
+  #   "your-api-key-2": { daily-usd: 5, weekly-usd: 20, monthly-usd: 60, timezone: Asia/Kolkata }
 
 # Optional credential concurrency and observation contracts.
 

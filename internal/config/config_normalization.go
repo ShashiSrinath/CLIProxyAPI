@@ -1,8 +1,12 @@
 package config
 
 import (
+	"fmt"
+	"math"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	sdkpluginstore "github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginstore"
 )
@@ -491,4 +495,103 @@ func NormalizeOAuthExcludedModels(entries map[string][]string) map[string][]stri
 		return nil
 	}
 	return out
+}
+
+// SanitizeAPIKeyModels trims the per-key model allow-lists and drops empty
+// patterns. Keys left without a usable pattern are removed, so they stay
+// unrestricted.
+func (cfg *Config) SanitizeAPIKeyModels() {
+	if cfg == nil || len(cfg.APIKeyModels) == 0 {
+		cfg.APIKeyModels = nil
+		return
+	}
+	out := make(map[string][]string, len(cfg.APIKeyModels))
+	for raw, patterns := range cfg.APIKeyModels {
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			continue
+		}
+		clean := make([]string, 0, len(patterns))
+		seen := make(map[string]struct{}, len(patterns))
+		for _, pattern := range patterns {
+			trimmed := strings.TrimSpace(pattern)
+			if trimmed == "" {
+				continue
+			}
+			if _, dup := seen[trimmed]; dup {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			clean = append(clean, trimmed)
+		}
+		if len(clean) > 0 {
+			out[key] = clean
+		}
+	}
+	if len(out) == 0 {
+		cfg.APIKeyModels = nil
+		return
+	}
+	cfg.APIKeyModels = out
+}
+
+// SanitizeAPIKeyLimits trims the timezone of the per-key spend limits. Empty
+// entries are removed.
+func (cfg *Config) SanitizeAPIKeyLimits() {
+	if cfg == nil || len(cfg.APIKeyLimits) == 0 {
+		cfg.APIKeyLimits = nil
+		return
+	}
+	out := make(map[string]APIKeyLimit, len(cfg.APIKeyLimits))
+	for raw, limit := range cfg.APIKeyLimits {
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			continue
+		}
+		limit.Timezone = strings.TrimSpace(limit.Timezone)
+		out[key] = limit
+	}
+	if len(out) == 0 {
+		cfg.APIKeyLimits = nil
+		return
+	}
+	cfg.APIKeyLimits = out
+}
+
+// ValidateAPIKeyAccess rejects negative or non-finite spend limits and
+// timezones that do not load via time.LoadLocation.
+func (cfg *Config) ValidateAPIKeyAccess() error {
+	if cfg == nil || len(cfg.APIKeyLimits) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(cfg.APIKeyLimits))
+	for key := range cfg.APIKeyLimits {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		limit := cfg.APIKeyLimits[key]
+		for _, window := range []struct {
+			name  string
+			value float64
+		}{
+			{"daily-usd", limit.DailyUSD},
+			{"weekly-usd", limit.WeeklyUSD},
+			{"monthly-usd", limit.MonthlyUSD},
+		} {
+			if math.IsNaN(window.value) || math.IsInf(window.value, 0) {
+				return fmt.Errorf("api-key-limits[%s].%s must be a finite amount", key, window.name)
+			}
+			if window.value < 0 {
+				return fmt.Errorf("api-key-limits[%s].%s must not be negative", key, window.name)
+			}
+		}
+		if limit.Timezone == "" {
+			continue
+		}
+		if _, err := time.LoadLocation(limit.Timezone); err != nil {
+			return fmt.Errorf("api-key-limits[%s].timezone %q is invalid: %w", key, limit.Timezone, err)
+		}
+	}
+	return nil
 }

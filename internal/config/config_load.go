@@ -206,6 +206,13 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Normalize global OAuth request-scoped error rules.
 	cfg.SanitizeOAuthRequestScopedErrors()
 
+	// Normalize and validate the per-client-key model allow-lists and spend limits.
+	cfg.SanitizeAPIKeyModels()
+	cfg.SanitizeAPIKeyLimits()
+	if errValidate := cfg.ValidateAPIKeyAccess(); errValidate != nil {
+		return nil, errValidate
+	}
+
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
 

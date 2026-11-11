@@ -123,6 +123,11 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.SanitizeOAuthModelAlias()
 	cfg.SanitizeOAuthSettings()
 	cfg.SanitizeOAuthRequestScopedErrors()
+	cfg.SanitizeAPIKeyModels()
+	cfg.SanitizeAPIKeyLimits()
+	if errValidate := cfg.ValidateAPIKeyAccess(); errValidate != nil {
+		return nil, errValidate
+	}
 	cfg.SanitizePayloadRules()
 
 	return &cfg, nil

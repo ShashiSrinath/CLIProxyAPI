@@ -37,6 +37,10 @@ type Tracker struct {
 	// flushMu serializes writes of the store file.
 	flushMu sync.Mutex
 
+	// budgetMu guards the cached spend-budget statuses.
+	budgetMu    sync.Mutex
+	budgetCache map[string]budgetCacheEntry
+
 	// pricing holds the PriceResolver used to classify records into tariff
 	// conditions. It is read outside mu so Record never nests the pricing lock.
 	pricing atomic.Value
@@ -254,6 +258,9 @@ func (t *Tracker) Clear() error {
 	t.recent.reset()
 	t.dirty = true
 	t.mu.Unlock()
+	t.budgetMu.Lock()
+	t.budgetCache = nil
+	t.budgetMu.Unlock()
 	return t.flush()
 }
 

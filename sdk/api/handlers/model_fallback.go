@@ -56,6 +56,10 @@ func (h *BaseAPIHandler) modelFallbackFor(ctx context.Context, handlerType, curr
 			providers = allowed.Filter(providers)
 		}
 		providers = adjustExecutionProvidersForEntryProtocol(handlerType, providers)
+		if !modelAllowListFromContext(h.Cfg, ctx).Allows(target) {
+			log.Warnf("model fallback: %s is out of limits but the client API key may not use fallback model %s", baseModel, target)
+			return modelFallback{}, false
+		}
 		if providers, errMsg = h.restrictProvidersForRequest(ctx, providers, target); errMsg != nil || len(providers) == 0 {
 			log.Warnf("model fallback: %s is out of limits but no allowed provider serves fallback model %s", baseModel, target)
 			return modelFallback{}, false

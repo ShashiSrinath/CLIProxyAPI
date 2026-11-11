@@ -11,6 +11,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/usagestats"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/util"
+	sdkhandlers "github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -22,6 +23,35 @@ type usageTracking struct {
 	dataDir string
 	tracker *usagestats.Tracker
 	pricing *usagestats.Pricing
+}
+
+// keyBudgetChecker builds the spend-budget hook used by the API handlers. When usage
+// tracking is disabled the hook reports an unavailable budget, so keys with a
+// configured spend limit fail closed instead of bypassing enforcement.
+func keyBudgetChecker() sdkhandlers.KeyBudgetChecker {
+	return func(rawKey string, limit config.APIKeyLimit) *sdkhandlers.BudgetBlock {
+		tracker := usagestats.Active()
+		if tracker == nil {
+			return &sdkhandlers.BudgetBlock{Reason: sdkhandlers.BudgetReasonUnavailable}
+		}
+		status := tracker.KeyBudget(rawKey, limit, time.Now())
+		for _, window := range status.Windows {
+			if window.Exceeded {
+				return &sdkhandlers.BudgetBlock{
+					Period:   window.Period,
+					LimitUSD: window.LimitUSD,
+					SpentUSD: window.SpentUSD,
+					ResetsAt: window.ResetsAt,
+				}
+			}
+		}
+		return nil
+	}
+}
+
+// setKeyBudgetChecker installs the spend-budget hook used by the API handlers.
+func setKeyBudgetChecker() {
+	sdkhandlers.SetKeyBudgetChecker(keyBudgetChecker())
 }
 
 // resolveUsageDataDir returns the configured usage data directory, or

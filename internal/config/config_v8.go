@@ -75,6 +75,8 @@ func buildV8Paths() []configPath {
 		{"remote-management", "management"}, {"api-keys", "access.api-keys"},
 		{"api-key-providers", "access.api-key-providers"},
 		{"api-key-names", "access.api-key-names"},
+		{"api-key-models", "access.api-key-models"},
+		{"api-key-limits", "access.api-key-limits"},
 		{"credential-concurrency", "credentials.concurrency"}, {"credential-in-flight", "credentials.in-flight"},
 		{"force-model-prefix", "routing.force-model-prefix"}, {"model-fallback", "routing.model-fallback"},
 		{"request-retry", "routing.retry.request-retry"}, {"max-retry-credentials", "routing.retry.max-retry-credentials"},

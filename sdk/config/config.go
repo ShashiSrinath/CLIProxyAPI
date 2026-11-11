@@ -42,6 +42,8 @@ type OpenAICompatibilityModel = internalconfig.OpenAICompatibilityModel
 
 type TLS = internalconfig.TLSConfig
 
+type APIKeyLimit = internalconfig.APIKeyLimit
+
 const (
 	DefaultPanelGitHubRepository = internalconfig.DefaultPanelGitHubRepository
 )

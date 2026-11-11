@@ -69,6 +69,13 @@ type SDKConfig struct {
 	// APIKeyNames assigns human-readable labels to individual client API keys.
 	APIKeyNames map[string]string `yaml:"api-key-names,omitempty" json:"api-key-names,omitempty"`
 
+	// APIKeyModels restricts individual client API keys to model name patterns ("*" glob,
+	// case-insensitive). Keys without an entry (or with no usable pattern) may use every model.
+	APIKeyModels map[string][]string `yaml:"api-key-models,omitempty" json:"api-key-models,omitempty"`
+
+	// APIKeyLimits caps the API-equivalent USD spend of individual client API keys.
+	APIKeyLimits map[string]APIKeyLimit `yaml:"api-key-limits,omitempty" json:"api-key-limits,omitempty"`
+
 	// ModelFallback reroutes requests for a main model to a fallback model once the
 	// main model is out of limits (HTTP 429 after every credential was tried).
 	ModelFallback ModelFallbackConfig `yaml:"model-fallback,omitempty" json:"model-fallback,omitempty"`
@@ -83,6 +90,21 @@ type SDKConfig struct {
 	// NonStreamKeepAliveInterval controls how often blank lines are emitted for non-streaming responses.
 	// <= 0 disables keep-alives. Value is in seconds.
 	NonStreamKeepAliveInterval int `yaml:"nonstream-keepalive-interval,omitempty" json:"nonstream-keepalive-interval,omitempty"`
+}
+
+// APIKeyLimit caps the API-equivalent USD spend of one client API key per calendar
+// day, week and month. A zero amount means the window has no cap. Timezone is an
+// IANA name; an empty value means UTC.
+type APIKeyLimit struct {
+	DailyUSD   float64 `yaml:"daily-usd,omitempty" json:"daily-usd,omitempty"`
+	WeeklyUSD  float64 `yaml:"weekly-usd,omitempty" json:"weekly-usd,omitempty"`
+	MonthlyUSD float64 `yaml:"monthly-usd,omitempty" json:"monthly-usd,omitempty"`
+	Timezone   string  `yaml:"timezone,omitempty" json:"timezone,omitempty"`
+}
+
+// HasCap reports whether any spend window has a positive limit.
+func (l APIKeyLimit) HasCap() bool {
+	return l.DailyUSD > 0 || l.WeeklyUSD > 0 || l.MonthlyUSD > 0
 }
 
 // ClientConfig configures client-facing compatibility behavior.
