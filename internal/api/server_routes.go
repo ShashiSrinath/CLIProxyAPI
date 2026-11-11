@@ -65,6 +65,7 @@ func (s *Server) setupRoutes() {
 	v1.Use(AuthMiddleware(s.accessManager))
 	{
 		v1.GET("/models", s.unifiedModelsHandler(openaiHandlers, claudeCodeHandlers))
+		v1.GET("/key", s.handleKeyInfo)
 		v1.POST("/chat/completions", openaiHandlers.ChatCompletions)
 		v1.POST("/completions", openaiHandlers.Completions)
 		v1.POST("/images/generations", openaiHandlers.ImagesGenerations)
@@ -107,6 +108,13 @@ func (s *Server) setupRoutes() {
 		openaiV1.POST("/videos", openaiHandlers.VideosCreate)
 		openaiV1.GET("/videos/:video_id/content", openaiHandlers.VideosContent)
 		openaiV1.GET("/videos/:video_id", openaiHandlers.VideosRetrieve)
+	}
+
+	// OpenRouter-compatible client key info alias.
+	apiV1 := s.engine.Group("/api/v1")
+	apiV1.Use(AuthMiddleware(s.accessManager))
+	{
+		apiV1.GET("/key", s.handleKeyInfo)
 	}
 
 	// Codex CLI direct route aliases (chatgpt_base_url compatible)

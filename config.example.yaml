@@ -112,6 +112,8 @@ access:
   # name and defaults to UTC.
   # api-key-limits:
   #   "your-api-key-2": { daily-usd: 5, weekly-usd: 20, monthly-usd: 60, timezone: Asia/Kolkata }
+  # Clients can read their own usage, allow-lists and remaining budget with their own
+  # key via GET /v1/key (alias: GET /api/v1/key, OpenRouter /api/v1/key shape).
 
 # Optional credential concurrency and observation contracts.
 

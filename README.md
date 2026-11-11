@@ -146,6 +146,24 @@ CLIProxyAPI Guides: [https://help.router-for.me/](https://help.router-for.me/)
 
 see [MANAGEMENT_API.md](https://help.router-for.me/management/api)
 
+## Client API Keys
+
+Client keys listed in `access.api-keys` authenticate with `Authorization: Bearer <key>`. Each key can be restricted to
+upstream providers (`access.api-key-providers`), model patterns (`access.api-key-models`, `*` globs) and USD spend
+budgets per calendar day, week and month (`access.api-key-limits`). Once a window is exhausted the key gets HTTP 429
+until the window resets.
+
+A client can read its own limits and usage with its own key:
+
+```bash
+curl -H "Authorization: Bearer $CLI_PROXY_API_KEY" http://localhost:8317/v1/key
+```
+
+`GET /api/v1/key` is an alias, and the body follows OpenRouter's `GET /api/v1/key` shape (`label`, `limit`,
+`limit_remaining`, `limit_reset`, `usage`, usage windows, `budgets`, `effective_budget`) plus the CLIProxyAPI
+extensions `allowed_models`, `allowed_providers`, `timezone`, `tracking_enabled` and `blocked`. Spend is estimated from
+OpenRouter list prices, so unpriced models count as $0.
+
 ## Usage Statistics
 
 Since v6.10.0, CLIProxyAPI and [CPAMC](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) no longer ship built-in usage statistics. If you need usage statistics, use:

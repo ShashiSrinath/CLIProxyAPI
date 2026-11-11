@@ -14,9 +14,11 @@ const (
 	// request path.
 	budgetCacheTTL = 5 * time.Second
 
-	budgetPeriodDay   = "day"
-	budgetPeriodWeek  = "week"
-	budgetPeriodMonth = "month"
+	// BudgetPeriodDay, BudgetPeriodWeek and BudgetPeriodMonth are the window
+	// periods of a spend limit. Weeks start on Monday.
+	BudgetPeriodDay   = "day"
+	BudgetPeriodWeek  = "week"
+	BudgetPeriodMonth = "month"
 )
 
 // KeyIDForRaw returns the stable, non-reversible identifier of a client API key.
@@ -46,6 +48,45 @@ type BudgetStatus struct {
 	KeyID    string         `json:"id"`
 	Windows  []BudgetWindow `json:"windows"`
 	Exceeded bool           `json:"exceeded"`
+}
+
+// BudgetInterval renders a window period as an OpenRouter-style reset interval:
+// "daily", "weekly" or "monthly". Unknown periods yield an empty string.
+func BudgetInterval(period string) string {
+	switch period {
+	case BudgetPeriodDay:
+		return "daily"
+	case BudgetPeriodWeek:
+		return "weekly"
+	case BudgetPeriodMonth:
+		return "monthly"
+	default:
+		return ""
+	}
+}
+
+// BudgetWindowBounds returns the inclusive start and the exclusive reset instant
+// of the spend window period that contains now in timezone. An empty or invalid
+// timezone falls back to UTC.
+func BudgetWindowBounds(now time.Time, timezone, period string) (time.Time, time.Time) {
+	return budgetWindowBounds(now, budgetLocation(timezone), period)
+}
+
+// BudgetWindows lists the spend windows of limit that have a positive cap. Each
+// window carries its bounds around now; its spend is left at zero.
+func BudgetWindows(limit config.APIKeyLimit, now time.Time) []BudgetWindow {
+	windows := budgetWindows(limit)
+	if len(windows) == 0 {
+		return windows
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	loc := budgetLocation(limit.Timezone)
+	for i := range windows {
+		windows[i].Start, windows[i].ResetsAt = budgetWindowBounds(now, loc, windows[i].Period)
+	}
+	return windows
 }
 
 // budgetCacheEntry is one cached status together with the clock reading it was
@@ -117,14 +158,9 @@ func (t *Tracker) KeyBudget(rawKey string, limit config.APIKeyLimit, now time.Ti
 	if cached, ok := t.cachedBudget(keyID, limit, now); ok {
 		return cached
 	}
-	loc := budgetLocation(limit.Timezone)
-	for _, window := range budgetWindows(limit) {
-		start, resetsAt := budgetWindowBounds(now, loc, window.Period)
-		spent := t.KeySpendSince(keyID, start)
-		window.Start = start
-		window.ResetsAt = resetsAt
-		window.SpentUSD = spent
-		window.Exceeded = spent >= window.LimitUSD
+	for _, window := range BudgetWindows(limit, now) {
+		window.SpentUSD = t.KeySpendSince(keyID, window.Start)
+		window.Exceeded = window.SpentUSD >= window.LimitUSD
 		status.Windows = append(status.Windows, window)
 		status.Exceeded = status.Exceeded || window.Exceeded
 	}
@@ -150,13 +186,13 @@ func budgetLocation(timezone string) *time.Location {
 func budgetWindows(limit config.APIKeyLimit) []BudgetWindow {
 	windows := make([]BudgetWindow, 0, 3)
 	if limit.DailyUSD > 0 {
-		windows = append(windows, BudgetWindow{Period: budgetPeriodDay, LimitUSD: limit.DailyUSD})
+		windows = append(windows, BudgetWindow{Period: BudgetPeriodDay, LimitUSD: limit.DailyUSD})
 	}
 	if limit.WeeklyUSD > 0 {
-		windows = append(windows, BudgetWindow{Period: budgetPeriodWeek, LimitUSD: limit.WeeklyUSD})
+		windows = append(windows, BudgetWindow{Period: BudgetPeriodWeek, LimitUSD: limit.WeeklyUSD})
 	}
 	if limit.MonthlyUSD > 0 {
-		windows = append(windows, BudgetWindow{Period: budgetPeriodMonth, LimitUSD: limit.MonthlyUSD})
+		windows = append(windows, BudgetWindow{Period: BudgetPeriodMonth, LimitUSD: limit.MonthlyUSD})
 	}
 	return windows
 }
@@ -168,11 +204,11 @@ func budgetWindowBounds(now time.Time, loc *time.Location, period string) (time.
 	local := now.In(loc)
 	dayStart := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
 	switch period {
-	case budgetPeriodWeek:
+	case BudgetPeriodWeek:
 		offset := (int(local.Weekday()) + 6) % 7
 		start := dayStart.AddDate(0, 0, -offset)
 		return start, start.AddDate(0, 0, 7)
-	case budgetPeriodMonth:
+	case BudgetPeriodMonth:
 		start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, loc)
 		return start, start.AddDate(0, 1, 0)
 	default:

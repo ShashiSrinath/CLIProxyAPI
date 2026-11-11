@@ -10,9 +10,9 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/usagestats"
 )
 
-// keyBudgetRow is one configured client API key with its allow-lists and spend
+// KeyBudgetRow is one configured client API key with its allow-lists and spend
 // status. The raw key is never included: only its stable id and masked form.
-type keyBudgetRow struct {
+type KeyBudgetRow struct {
 	ID        string                    `json:"id"`
 	Masked    string                    `json:"masked"`
 	Name      string                    `json:"name"`
@@ -27,7 +27,7 @@ type keyBudgetRow struct {
 type keyBudgetsPayload struct {
 	Enabled     bool           `json:"enabled"`
 	GeneratedAt string         `json:"generated_at"`
-	Keys        []keyBudgetRow `json:"keys"`
+	Keys        []KeyBudgetRow `json:"keys"`
 }
 
 // GetUsageKeyBudgets returns the configured model allow-lists and spend windows of
@@ -38,7 +38,7 @@ func (h *Handler) GetUsageKeyBudgets(c *gin.Context) {
 	payload := keyBudgetsPayload{
 		Enabled:     tracker != nil,
 		GeneratedAt: now.UTC().Format(time.RFC3339),
-		Keys:        []keyBudgetRow{},
+		Keys:        []KeyBudgetRow{},
 	}
 	if cfg == nil {
 		c.JSON(http.StatusOK, payload)
@@ -49,15 +49,16 @@ func (h *Handler) GetUsageKeyBudgets(c *gin.Context) {
 		if raw == "" {
 			continue
 		}
-		payload.Keys = append(payload.Keys, keyBudgetRowFor(cfg, tracker, raw, now))
+		payload.Keys = append(payload.Keys, KeyBudgetRowFor(cfg, tracker, raw, now))
 	}
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, payload)
 }
 
-// keyBudgetRowFor builds the row of one raw client API key.
-func keyBudgetRowFor(cfg *config.Config, tracker *usagestats.Tracker, raw string, now time.Time) keyBudgetRow {
-	row := keyBudgetRow{
+// KeyBudgetRowFor builds the row of one raw client API key. The spend windows are
+// only filled when tracking is enabled; a nil tracker leaves them empty.
+func KeyBudgetRowFor(cfg *config.Config, tracker *usagestats.Tracker, raw string, now time.Time) KeyBudgetRow {
+	row := KeyBudgetRow{
 		ID:        usagestats.KeyIDForRaw(raw),
 		Masked:    usagestats.MaskKeyForRaw(raw),
 		Models:    []string{},

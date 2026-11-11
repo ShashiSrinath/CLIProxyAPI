@@ -44,35 +44,35 @@ func TestBudgetWindowBounds(t *testing.T) {
 		{
 			name:       "day UTC",
 			loc:        time.UTC,
-			period:     budgetPeriodDay,
+			period:     BudgetPeriodDay,
 			wantStart:  time.Date(2026, time.October, 18, 0, 0, 0, 0, time.UTC),
 			wantResets: time.Date(2026, time.October, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:       "day Kolkata",
 			loc:        kolkata,
-			period:     budgetPeriodDay,
+			period:     BudgetPeriodDay,
 			wantStart:  time.Date(2026, time.October, 18, 0, 0, 0, 0, kolkata),
 			wantResets: time.Date(2026, time.October, 19, 0, 0, 0, 0, kolkata),
 		},
 		{
 			name:       "week UTC starts Monday",
 			loc:        time.UTC,
-			period:     budgetPeriodWeek,
+			period:     BudgetPeriodWeek,
 			wantStart:  time.Date(2026, time.October, 12, 0, 0, 0, 0, time.UTC),
 			wantResets: time.Date(2026, time.October, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:       "week Kolkata starts local Monday",
 			loc:        kolkata,
-			period:     budgetPeriodWeek,
+			period:     BudgetPeriodWeek,
 			wantStart:  time.Date(2026, time.October, 12, 0, 0, 0, 0, kolkata),
 			wantResets: time.Date(2026, time.October, 19, 0, 0, 0, 0, kolkata),
 		},
 		{
 			name:       "month UTC",
 			loc:        time.UTC,
-			period:     budgetPeriodMonth,
+			period:     BudgetPeriodMonth,
 			wantStart:  time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC),
 			wantResets: time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC),
 		},
@@ -92,15 +92,15 @@ func TestBudgetWindowBounds(t *testing.T) {
 func TestBudgetWindowBoundsOnMondayAndMonthStart(t *testing.T) {
 	// Monday 2026-10-12 00:05 UTC and Sunday 2026-11-01 23:59 UTC.
 	monday := time.Date(2026, time.October, 12, 0, 5, 0, 0, time.UTC)
-	if start, _ := budgetWindowBounds(monday, time.UTC, budgetPeriodWeek); !start.Equal(monday.Truncate(24 * time.Hour)) {
+	if start, _ := budgetWindowBounds(monday, time.UTC, BudgetPeriodWeek); !start.Equal(monday.Truncate(24 * time.Hour)) {
 		t.Fatalf("Monday week start = %s, want the same Monday", start)
 	}
 	sunday := time.Date(2026, time.October, 18, 23, 59, 0, 0, time.UTC)
-	if start, _ := budgetWindowBounds(sunday, time.UTC, budgetPeriodWeek); !start.Equal(time.Date(2026, time.October, 12, 0, 0, 0, 0, time.UTC)) {
+	if start, _ := budgetWindowBounds(sunday, time.UTC, BudgetPeriodWeek); !start.Equal(time.Date(2026, time.October, 12, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("Sunday week start = %s, want the previous Monday", start)
 	}
 	monthStart := time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC)
-	start, resets := budgetWindowBounds(monthStart, time.UTC, budgetPeriodMonth)
+	start, resets := budgetWindowBounds(monthStart, time.UTC, BudgetPeriodMonth)
 	if !start.Equal(monthStart) || !resets.Equal(time.Date(2026, time.December, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("month bounds = %s/%s", start, resets)
 	}
@@ -157,7 +157,7 @@ func TestKeyBudgetReportsWindowsAndExceeded(t *testing.T) {
 		t.Fatalf("windows = %v, want day and month only", status.Windows)
 	}
 	day := status.Windows[0]
-	if day.Period != budgetPeriodDay || day.LimitUSD != 0.005 || !day.Exceeded {
+	if day.Period != BudgetPeriodDay || day.LimitUSD != 0.005 || !day.Exceeded {
 		t.Fatalf("day window = %+v", day)
 	}
 	if math.Abs(day.SpentUSD-attemptCost) > 1e-12 {
@@ -167,7 +167,7 @@ func TestKeyBudgetReportsWindowsAndExceeded(t *testing.T) {
 		t.Fatal("status must report the exceeded window")
 	}
 	month := status.Windows[1]
-	if month.Period != budgetPeriodMonth || month.Exceeded || month.LimitUSD != 60 {
+	if month.Period != BudgetPeriodMonth || month.Exceeded || month.LimitUSD != 60 {
 		t.Fatalf("month window = %+v", month)
 	}
 	if month.ResetsAt.Location().String() != "Asia/Kolkata" {
@@ -215,5 +215,41 @@ func TestKeyBudgetCachesPerKeyAndLimit(t *testing.T) {
 	tighter := tr.KeyBudget(key, config.APIKeyLimit{DailyUSD: 1}, testNow)
 	if tighter.Windows[0].LimitUSD != 1 || math.Abs(tighter.Windows[0].SpentUSD-attemptCost) > 1e-12 {
 		t.Fatalf("different limit used the cached status: %+v", tighter)
+	}
+}
+
+func TestBudgetWindowsAndIntervalNames(t *testing.T) {
+	limit := config.APIKeyLimit{DailyUSD: 5, MonthlyUSD: 60, Timezone: "Asia/Kolkata"}
+	windows := BudgetWindows(limit, testNow)
+	if len(windows) != 2 {
+		t.Fatalf("windows = %+v, want day and month only", windows)
+	}
+	if windows[0].LimitUSD != 5 || windows[1].LimitUSD != 60 {
+		t.Fatalf("window limits = %+v", windows)
+	}
+	if windows[0].SpentUSD != 0 || windows[0].Exceeded {
+		t.Fatalf("BudgetWindows must not fill spend: %+v", windows[0])
+	}
+	if windows[0].ResetsAt.Location().String() != "Asia/Kolkata" {
+		t.Fatalf("window bounds are not in the limit timezone: %+v", windows[0])
+	}
+	if got := BudgetInterval(windows[0].Period); got != "daily" {
+		t.Fatalf("BudgetInterval(day) = %q", got)
+	}
+	if got := BudgetInterval(BudgetPeriodWeek); got != "weekly" {
+		t.Fatalf("BudgetInterval(week) = %q", got)
+	}
+	if got := BudgetInterval(BudgetPeriodMonth); got != "monthly" {
+		t.Fatalf("BudgetInterval(month) = %q", got)
+	}
+	if got := BudgetInterval("quarter"); got != "" {
+		t.Fatalf("BudgetInterval(quarter) = %q", got)
+	}
+	if len(BudgetWindows(config.APIKeyLimit{}, testNow)) != 0 {
+		t.Fatal("a limit without caps must yield no windows")
+	}
+	start, resets := BudgetWindowBounds(testNow, "Not/AZone", BudgetPeriodDay)
+	if !resets.Equal(start.AddDate(0, 0, 1)) {
+		t.Fatalf("invalid timezone bounds = %s/%s", start, resets)
 	}
 }
