@@ -92,6 +92,27 @@ func (h *Handler) DeleteUsageSummary(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// RepriceUsage freezes the cost of stored usage that was never priced, using a
+// per-model price timeline. Send dry_run first to preview the effect.
+func (h *Handler) RepriceUsage(c *gin.Context) {
+	tracker, pricing, _ := h.usageDashboardState()
+	if tracker == nil || pricing == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "usage_tracking_disabled"})
+		return
+	}
+	var req usagestats.RepriceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body", "message": err.Error()})
+		return
+	}
+	report, err := tracker.RepriceUnpriced(req, pricing)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "reprice_failed", "message": err.Error(), "report": report})
+		return
+	}
+	c.JSON(http.StatusOK, report)
+}
+
 func usagePricingPayload(pricing *usagestats.Pricing, cfg *config.Config) gin.H {
 	overrides := map[string]config.ModelPriceOverride{}
 	disabled := false
