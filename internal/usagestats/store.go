@@ -46,6 +46,7 @@ type bucketRecord struct {
 	Provider string    `json:"provider"`
 	Model    string    `json:"model"`
 	Period   string    `json:"period,omitempty"`
+	Priced   bool      `json:"priced,omitempty"`
 	counters
 }
 
@@ -86,6 +87,7 @@ func (t *Tracker) load() error {
 			provider: rec.Provider,
 			model:    rec.Model,
 			period:   rec.Period,
+			priced:   rec.Priced,
 		}
 		if existing := t.buckets[key]; existing != nil {
 			existing.add(rec.counters)
@@ -154,6 +156,7 @@ func (t *Tracker) snapshotLocked(now time.Time) storeFile {
 			Provider: key.provider,
 			Model:    key.model,
 			Period:   key.period,
+			Priced:   key.priced,
 			counters: *c,
 		})
 	}
@@ -181,8 +184,22 @@ func sortBucketRecords(records []bucketRecord) {
 		if c := strings.Compare(a.Model, b.Model); c != 0 {
 			return c
 		}
-		return strings.Compare(a.Period, b.Period)
+		if c := strings.Compare(a.Period, b.Period); c != 0 {
+			return c
+		}
+		return cmpBool(a.Priced, b.Priced)
 	})
+}
+
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case !a:
+		return -1
+	default:
+		return 1
+	}
 }
 
 // maintainLocked drops buckets and key metadata older than the retention window

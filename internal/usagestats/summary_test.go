@@ -441,3 +441,41 @@ func TestDisabledSummaryHasEmptyLists(t *testing.T) {
 		}
 	}
 }
+
+func TestSummaryKeepsCostSnapshottedAtRecordTime(t *testing.T) {
+	dir := t.TempDir()
+	tr := newTestTracker(dir, 0, testNow)
+	ctx := context.Background()
+	const key = "sk-alpha-0123456789"
+	id := modelID{provider: "claude", model: "claude-sonnet-4-5"}
+	high := fakePrices{id: {Source: "openrouter", Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}}
+	low := fakePrices{id: {Source: "openrouter", Input: 1, Output: 5, CacheRead: 0.1, CacheWrite: 1.25}}
+
+	tr.SetPricing(high)
+	tr.Record(ctx, attemptRecord(key, "claude", "claude-sonnet-4-5", testNow.Add(-2*time.Hour)))
+	tr.SetPricing(low)
+	tr.Record(ctx, attemptRecord(key, "claude", "claude-sonnet-4-5", testNow.Add(-time.Minute)))
+	tr.SetPricing(nil)
+	tr.Record(ctx, attemptRecord(key, "claude", "claude-sonnet-4-5", testNow.Add(-time.Minute)))
+
+	// high = 6975/1e6, low = 2325/1e6; the unpriced record is priced at query time (low).
+	const want = (6975.0 + 2325.0 + 2325.0) / 1e6
+	q := mustQuery(t, url.Values{"range": {"24h"}}, testNow)
+	if got := tr.Summary(q, nil, low).Totals.CostUSD; !approxEqual(got, want) {
+		t.Fatalf("cost = %v, want %v", got, want)
+	}
+	if got := tr.KeySpendSince(keyIDForRaw(key), testNow.Add(-24*time.Hour)); !approxEqual(got, 6975.0/1e6+2325.0/1e6) {
+		t.Fatalf("key spend without resolver = %v", got)
+	}
+
+	if err := tr.flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	reloaded := newTestTracker(dir, 0, testNow)
+	if err := reloaded.load(); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := reloaded.Summary(q, nil, low).Totals.CostUSD; !approxEqual(got, want) {
+		t.Fatalf("reloaded cost = %v, want %v", got, want)
+	}
+}

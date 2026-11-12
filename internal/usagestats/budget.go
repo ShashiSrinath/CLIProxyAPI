@@ -128,7 +128,7 @@ func (t *Tracker) KeySpendSince(keyID string, since time.Time) float64 {
 			}
 			prices[id] = price
 		}
-		total += costOf(row.counters, price.forPeriod(row.period))
+		total += row.cost(price)
 	}
 	return total
 }

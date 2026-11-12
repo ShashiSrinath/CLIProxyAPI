@@ -65,6 +65,11 @@ type bucketKey struct {
 	provider string
 	model    string
 	period   string
+	// priced marks buckets whose CostUSD was snapshotted at record time. Their
+	// cost never changes when catalog prices change later. Unpriced buckets
+	// (legacy data, or records seen before a price was known) are priced at
+	// query time.
+	priced bool
 }
 
 // counters are the additive values stored per bucket.
@@ -79,6 +84,9 @@ type counters struct {
 	OutputTokens        int64 `json:"output_tokens"`
 	ReasoningTokens     int64 `json:"reasoning_tokens"`
 	LatencyMsSum        int64 `json:"latency_ms_sum"`
+	// CostUSD is the API-equivalent cost captured when the records were
+	// counted. It is only meaningful for priced buckets.
+	CostUSD float64 `json:"cost_usd,omitempty"`
 }
 
 func (c *counters) add(o counters) {
@@ -92,6 +100,7 @@ func (c *counters) add(o counters) {
 	c.OutputTokens += o.OutputTokens
 	c.ReasoningTokens += o.ReasoningTokens
 	c.LatencyMsSum += o.LatencyMsSum
+	c.CostUSD += o.CostUSD
 }
 
 // keyMeta is the per-key metadata kept so that removed keys still display.
@@ -210,8 +219,14 @@ func (t *Tracker) Record(ctx context.Context, record coreusage.Record) {
 	timestamp = timestamp.UTC()
 
 	period := ""
+	priced := false
 	if h, ok := t.pricing.Load().(pricingHolder); ok && h.resolver != nil {
-		period = h.resolver.Resolve(provider, modelName).period(timestamp, tokens.InputTokens)
+		price := h.resolver.Resolve(provider, modelName)
+		period = price.period(timestamp, tokens.InputTokens)
+		if price.Source != priceSourceNone {
+			priced = true
+			tokens.CostUSD = costOf(tokens, price.forPeriod(period))
+		}
 	}
 
 	t.mu.Lock()
@@ -227,6 +242,7 @@ func (t *Tracker) Record(ctx context.Context, record coreusage.Record) {
 		provider: provider,
 		model:    modelName,
 		period:   period,
+		priced:   priced,
 	}
 	bucket := t.buckets[key]
 	if bucket == nil {

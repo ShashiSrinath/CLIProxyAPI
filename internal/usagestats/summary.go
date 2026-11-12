@@ -190,8 +190,9 @@ func ParseSummaryQuery(values url.Values, now time.Time) (SummaryQuery, error) {
 
 // Summary aggregates the stored usage selected by q. Buckets are included when
 // their start lies in [from truncated to the hour, to). keys are the configured
-// client keys, which are listed even without usage. prices resolves model prices
-// at query time, so price changes apply retroactively. A nil tracker yields an
+// client keys, which are listed even without usage. Buckets priced at record
+// time keep their snapshotted cost; prices only fills in buckets that were
+// never priced. A nil tracker yields an
 // empty response with enabled set to false.
 func (t *Tracker) Summary(q SummaryQuery, keys []ConfiguredKey, prices PriceResolver) SummaryResponse {
 	return t.summaryFiltered(q, keys, prices, nil)
@@ -222,7 +223,7 @@ func (t *Tracker) summaryFiltered(q SummaryQuery, keys []ConfiguredKey, prices P
 		}
 		id := modelID{provider: row.provider, model: row.model}
 		price := builder.priceOf(id)
-		cost := costOf(row.counters, price.forPeriod(row.period))
+		cost := row.cost(price)
 		slot, inSeries := slotIndex[slotStart(row.start, bucket, loc).Unix()]
 
 		builder.totals.add(row.counters, cost)
@@ -384,6 +385,15 @@ func costOf(c counters, price Price) float64 {
 		float64(c.CacheReadTokens)*price.CacheRead +
 		float64(c.CacheWriteTokens)*price.CacheWrite +
 		float64(c.OutputTokens)*price.Output) / 1e6
+}
+
+// cost returns the snapshotted cost of a priced bucket, or prices an unpriced
+// bucket with the current price.
+func (r bucketRow) cost(price Price) float64 {
+	if r.priced {
+		return r.CostUSD
+	}
+	return costOf(r.counters, price.forPeriod(r.period))
 }
 
 // aggregate sums bucket counters together with their cost.
