@@ -58,3 +58,45 @@ func TestRepriceUnpricedUsesTimelineAndFreezes(t *testing.T) {
 		t.Fatalf("second reprice froze %d buckets", again.Frozen)
 	}
 }
+
+func TestRepriceTimelineTiersHourAndDayBuckets(t *testing.T) {
+	monday := time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+	tr := newTestTracker(t.TempDir(), 0, monday.Add(20*24*time.Hour))
+	ctx := context.Background()
+	const key = "sk-alpha-0123456789"
+	tr.Record(ctx, attemptRecord(key, "x", "flash", monday.Add(2*time.Hour)))   // peak hour
+	tr.Record(ctx, attemptRecord(key, "x", "flash", monday.Add(5*time.Hour)))   // off-peak hour
+	tr.Record(ctx, attemptRecord(key, "x", "flash", monday.Add(-24*time.Hour))) // Sunday, compacted below
+
+	// Compact the Sunday bucket into a day bucket by hand.
+	tr.mu.Lock()
+	for k, c := range tr.buckets {
+		if k.start.Before(monday) {
+			delete(tr.buckets, k)
+			k.span = bucketDay
+			k.start = k.start.Truncate(24 * time.Hour)
+			tr.buckets[k] = c
+		}
+	}
+	tr.mu.Unlock()
+
+	start, end := 100, 400
+	peak := []ConditionalPrice{{UTCDays: []string{"monday"}, UTCStart: &start, UTCEnd: &end, Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}}
+	req := RepriceRequest{Timeline: map[string][]PricePoint{"vendor/flash": {
+		{From: monday.Add(-72 * time.Hour), Input: 1, Output: 5, CacheRead: 0.1, CacheWrite: 1.25, Conditional: peak},
+	}}}
+	current := fakePrices{{provider: "x", model: "flash"}: {Source: "openrouter", MatchedID: "vendor/flash"}}
+	report, err := tr.RepriceUnpriced(req, current)
+	// Peak hour at high (6975), off-peak hour at low (2325), Sunday never peaks (2325).
+	if err != nil || report.Frozen != 3 || !approxEqual(report.AfterUSD, (6975.0+2325+2325)/1e6) {
+		t.Fatalf("report = %+v, %v", report, err)
+	}
+
+	// A day bucket on Monday blends 3 peak hours with 21 off-peak hours.
+	day := bucketKey{start: monday, span: bucketDay}
+	c := counters{UncachedInputTokens: 1000, CacheReadTokens: 2000, CacheWriteTokens: 500, OutputTokens: 100}
+	got := costOverSpan(c, Price{Input: 1, Output: 5, CacheRead: 0.1, CacheWrite: 1.25, Conditional: peak}, day)
+	if want := (3*6975.0 + 21*2325.0) / 24 / 1e6; !approxEqual(got, want) {
+		t.Fatalf("day blend = %v, want %v", got, want)
+	}
+}

@@ -14,6 +14,9 @@ type PricePoint struct {
 	Output     float64   `json:"output"`
 	CacheRead  float64   `json:"cache_read"`
 	CacheWrite float64   `json:"cache_write"`
+	// Conditional holds time-of-day tiers (for example peak/off-peak) that
+	// replace the base price while they match.
+	Conditional []ConditionalPrice `json:"conditional,omitempty"`
 }
 
 // RepriceRequest freezes the cost of buckets that were never priced. Timeline
@@ -105,7 +108,7 @@ func (t *Tracker) repriceUnpriced(req RepriceRequest, resolver PriceResolver) Re
 		freeze := false
 		if points := timeline[strings.ToLower(price.MatchedID)]; price.MatchedID != "" && len(points) > 0 {
 			p := pricePointAt(points, key.start)
-			after = costOf(*c, Price{Source: "timeline", Input: p.Input, Output: p.Output, CacheRead: p.CacheRead, CacheWrite: p.CacheWrite})
+			after = costOverSpan(*c, Price{Source: "timeline", Input: p.Input, Output: p.Output, CacheRead: p.CacheRead, CacheWrite: p.CacheWrite, Conditional: p.Conditional}, key)
 			m.Source = "timeline"
 			freeze = true
 		} else if req.FreezeRest && price.Source != priceSourceNone {
@@ -143,6 +146,24 @@ func (t *Tracker) repriceUnpriced(req RepriceRequest, resolver PriceResolver) Re
 		return strings.Compare(a.Model, b.Model)
 	})
 	return report
+}
+
+// costOverSpan prices a bucket with tiered rates. An hour bucket uses the tier
+// of its hour. A day bucket cannot tell when in the day its tokens were used,
+// so it averages the 24 hourly rates of that UTC day.
+func costOverSpan(c counters, price Price, key bucketKey) float64 {
+	if len(price.Conditional) == 0 {
+		return costOf(c, price)
+	}
+	if key.span != bucketDay {
+		return costOf(c, price.forPeriod(price.period(key.start, 0)))
+	}
+	var sum float64
+	for h := 0; h < 24; h++ {
+		at := key.start.Add(time.Duration(h) * time.Hour)
+		sum += costOf(c, price.forPeriod(price.period(at, 0)))
+	}
+	return sum / 24
 }
 
 // pricePointAt returns the last point starting at or before at, or the first

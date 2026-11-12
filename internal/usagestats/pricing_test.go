@@ -605,3 +605,23 @@ func TestPricingCompatModelFamilyPreference(t *testing.T) {
 	pricingExpectPrice(t, p.Resolve("openai-compatible-opencode-go", "kimi-k2.6"), "openrouter", "moonshotai/kimi-k2.6", 3, 4, 3, 3)
 	pricingExpectPrice(t, p.Resolve("openai-compatible-opencode-go", "other/kimi-k2.6:free"), "openrouter", "other/kimi-k2.6", 1, 2, 1, 1)
 }
+
+func TestPricingOverrideTiersApplyByTimeOfDay(t *testing.T) {
+	start, end := 100, 400
+	cfg := config.UsagePricingConfig{Overrides: map[string]config.ModelPriceOverride{
+		"flash": {Input: pricingPtr(0.15), Output: pricingPtr(0.6), CacheRead: pricingPtr(0.003), Tiers: []config.PriceTier{
+			{UTCDays: []string{"Monday"}, UTCStart: &start, UTCEnd: &end, Input: 0.3, Output: 1.2, CacheRead: pricingPtr(0.006)},
+		}},
+	}}
+	p, _ := newTestPricing(t, pricingTestCatalogBody, cfg)
+	price := p.Resolve("any", "flash")
+	monday := time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+	peak := price.forPeriod(price.period(monday.Add(2*time.Hour), 0))
+	off := price.forPeriod(price.period(monday.Add(5*time.Hour), 0))
+	if peak.Input != 0.3 || peak.Output != 1.2 || peak.CacheRead != 0.006 || peak.CacheWrite != 0.3 {
+		t.Fatalf("peak = %+v", peak)
+	}
+	if off.Input != 0.15 || off.Output != 0.6 || off.CacheRead != 0.003 {
+		t.Fatalf("off-peak = %+v", off)
+	}
+}

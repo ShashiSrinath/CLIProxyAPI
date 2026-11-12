@@ -43,6 +43,23 @@ type ModelPriceOverride struct {
 	Output       *float64 `yaml:"output,omitempty" json:"output,omitempty"`
 	CacheRead    *float64 `yaml:"cache-read,omitempty" json:"cache-read,omitempty"`
 	CacheWrite   *float64 `yaml:"cache-write,omitempty" json:"cache-write,omitempty"`
+	// Tiers are time-of-day prices (for example peak/off-peak) that replace the
+	// base price while their conditions match. Unset tier cache prices fall back
+	// to the tier input price.
+	Tiers []PriceTier `yaml:"tiers,omitempty" json:"tiers,omitempty"`
+}
+
+// PriceTier is a time-of-day price in USD per one million tokens. UTCStart and
+// UTCEnd are HHMM in UTC (end exclusive; start > end wraps past midnight), and
+// UTCDays lists lowercase weekday names. Empty conditions always match.
+type PriceTier struct {
+	UTCDays    []string `yaml:"utc-days,omitempty" json:"utc-days,omitempty"`
+	UTCStart   *int     `yaml:"utc-start,omitempty" json:"utc-start,omitempty"`
+	UTCEnd     *int     `yaml:"utc-end,omitempty" json:"utc-end,omitempty"`
+	Input      float64  `yaml:"input" json:"input"`
+	Output     float64  `yaml:"output" json:"output"`
+	CacheRead  *float64 `yaml:"cache-read,omitempty" json:"cache-read,omitempty"`
+	CacheWrite *float64 `yaml:"cache-write,omitempty" json:"cache-write,omitempty"`
 }
 
 // SubscriptionPlan describes a recurring subscription and its credentials.

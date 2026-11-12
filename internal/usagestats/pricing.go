@@ -573,7 +573,7 @@ func (p *Pricing) overridePriceLocked(key string, ov config.ModelPriceOverride) 
 		base = &p.entries[idx]
 	}
 	hasManual := ov.Input != nil || ov.Output != nil || ov.CacheRead != nil || ov.CacheWrite != nil
-	if base == nil && !hasManual {
+	if base == nil && !hasManual && len(ov.Tiers) == 0 {
 		return Price{}, false
 	}
 
@@ -592,7 +592,41 @@ func (p *Pricing) overridePriceLocked(key string, ov config.ModelPriceOverride) 
 	if base != nil && !hasManual {
 		price.Conditional = base.Conditional
 	}
+	if len(ov.Tiers) > 0 {
+		price.Conditional = tiersToConditional(ov.Tiers)
+	}
 	return price, true
+}
+
+// tiersToConditional converts configured override tiers to conditional prices.
+func tiersToConditional(tiers []config.PriceTier) []ConditionalPrice {
+	out := make([]ConditionalPrice, 0, len(tiers))
+	for _, tier := range tiers {
+		days := make([]string, 0, len(tier.UTCDays))
+		for _, day := range tier.UTCDays {
+			if day = strings.ToLower(strings.TrimSpace(day)); day != "" {
+				days = append(days, day)
+			}
+		}
+		out = append(out, ConditionalPrice{
+			UTCDays:    days,
+			UTCStart:   cloneInt(tier.UTCStart),
+			UTCEnd:     cloneInt(tier.UTCEnd),
+			Input:      tier.Input,
+			Output:     tier.Output,
+			CacheRead:  valueOrDefault(tier.CacheRead, tier.Input),
+			CacheWrite: valueOrDefault(tier.CacheWrite, tier.Input),
+		})
+	}
+	return out
+}
+
+func cloneInt(v *int) *int {
+	if v == nil {
+		return nil
+	}
+	c := *v
+	return &c
 }
 
 // catalogMatchLocked finds a catalog entry by normalized name. A trailing
@@ -958,6 +992,26 @@ func cloneOverrides(in map[string]config.ModelPriceOverride) map[string]config.M
 			Output:       cloneFloat(ov.Output),
 			CacheRead:    cloneFloat(ov.CacheRead),
 			CacheWrite:   cloneFloat(ov.CacheWrite),
+			Tiers:        cloneTiers(ov.Tiers),
+		}
+	}
+	return out
+}
+
+func cloneTiers(in []config.PriceTier) []config.PriceTier {
+	if in == nil {
+		return nil
+	}
+	out := make([]config.PriceTier, len(in))
+	for i, tier := range in {
+		out[i] = config.PriceTier{
+			UTCDays:    slices.Clone(tier.UTCDays),
+			UTCStart:   cloneInt(tier.UTCStart),
+			UTCEnd:     cloneInt(tier.UTCEnd),
+			Input:      tier.Input,
+			Output:     tier.Output,
+			CacheRead:  cloneFloat(tier.CacheRead),
+			CacheWrite: cloneFloat(tier.CacheWrite),
 		}
 	}
 	return out
